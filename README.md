@@ -81,9 +81,31 @@ All upstream non-GUI engines remain available via CLI & Python:
 
 ---
 
-## Quick Start (1 Command)
+## Download & Install (Step-by-Step)
 
-### Windows (PowerShell)
+**Requirements:** **Python 3.11–3.14** *(Windows installer can also use `uv` if installed)*. No manual PyTorch / CUDA setup required — the universal installer detects your GPU/NPU automatically.
+
+### Option 1: Easiest Download — ZIP from GitHub Releases *(No Git Required)*
+
+1. Go to **[GitHub Releases](https://github.com/pongmile/remove-ai-watermarks-studio/releases/latest)** and download **`remove-ai-watermarks-studio-v0.66.0-studio.1.zip`** *(verify optional `SHA256SUMS.txt` if desired)*.
+2. **Extract** the ZIP to any folder (for example `C:\Tools\remove-ai-watermarks-studio` or `~/remove-ai-watermarks-studio`).
+3. **Install & Launch:**
+   - **Windows:**
+     1. Double-click **`Install Studio.cmd`** *(auto-detects NVIDIA RTX/GTX, AMD DirectML, Intel Arc/NPU, or CPU, creates `.venv`, and adds a Desktop shortcut)*.
+     2. Double-click **`Start Studio.cmd`** (or the **Remove AI Watermarks Studio** Desktop shortcut).
+   - **macOS & Linux:**
+     ```bash
+     cd remove-ai-watermarks-studio
+     chmod +x install.sh run_webapp.sh update.sh
+     ./install.sh
+     ./run_webapp.sh --open
+     ```
+
+> **Note:** ZIP releases work 100% offline with zero Git requirement. To update a ZIP install later, either download the next release ZIP or use **Option 2 (`git clone`)** below for 1-click in-app updates.
+
+### Option 2: Git Clone *(Recommended — Enables 1-Click GitHub Auto-Updates)*
+
+#### Windows (PowerShell)
 
 ```powershell
 git clone https://github.com/pongmile/remove-ai-watermarks-studio.git
@@ -91,13 +113,9 @@ cd remove-ai-watermarks-studio
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-Then double-click **`Start Studio.cmd`** (or your **Remove AI Watermarks Studio** Desktop shortcut created by `install.ps1` / `make_shortcut.ps1`), or run:
+Then double-click **`Start Studio.cmd`** (or your **Remove AI Watermarks Studio** Desktop shortcut), or run `.\run_webapp.ps1 -Open`.
 
-```powershell
-.\run_webapp.ps1 -Open
-```
-
-### macOS & Linux
+#### macOS & Linux
 
 ```bash
 git clone https://github.com/pongmile/remove-ai-watermarks-studio.git
@@ -113,7 +131,7 @@ Open **http://127.0.0.1:8000** in your browser.
 - **Easy & Safe Shutdown:** Click **Quit** in the top-right header (or simply close the last Studio browser tab — Studio automatically shuts down and frees RAM/VRAM after ~12 seconds when idle). If any cleaning job, model download, or GitHub update is still running, Studio warns you before closing so unfinished work is never lost accidentally.
 - **1-Click Restart:** After updating from GitHub, click **Restart Studio** inside the **Models & Updates** drawer to reload the new code automatically.
 
-> **Lightweight install (no large PyTorch diffusion stack):** Pass `-SkipDeepClean` (Windows) or `--skip-deep-clean` (macOS/Linux) if you only need **Quick Clean**, **Manual Erase**, **Metadata Strip**, **Inspect**, and **Visible Video Clean**.
+> **Lightweight install (skip large PyTorch diffusion stack):** Pass `-SkipDeepClean` (Windows: `.\install.ps1 -SkipDeepClean`) or `--skip-deep-clean` (macOS/Linux) if you only need **Quick Clean**, **Manual Erase**, **Metadata Strip**, **Inspect**, and **Visible Video Clean**.
 >
 > **Explicit hardware override:** Both installers support `-Backend` / `--backend` with `auto`, `nvidia`, `nvidia-blackwell`, `amd-rocm`, `amd-dml`, `intel-xpu`, `intel-npu`, `apple-mps`, or `cpu`.
 
