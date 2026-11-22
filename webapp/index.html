@@ -51,6 +51,10 @@
         <span id="themeLabel">Auto</span>
       </button>
       <button id="kbdBtn" class="ghost sm icon-only" type="button" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+      <button id="quitBtn" class="ghost sm quit-btn" type="button" title="Quit Studio and free RAM/VRAM" aria-label="Quit Studio">
+        <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+        <span data-i18n="quitBtn">Quit</span>
+      </button>
     </div>
   </header>
 
@@ -568,6 +572,7 @@
           </div>
           <button id="checkUpdateBtn" class="ghost sm" type="button" data-i18n="checkUpdatesBtn">Check Updates</button>
           <button id="applyUpdateBtn" class="sm" type="button" data-i18n="applyUpdateBtn">Update from GitHub</button>
+          <button id="restartStudioBtn" class="ghost sm" type="button" data-i18n="restartStudioBtn" hidden>Restart Studio</button>
         </div>
         <div id="updateMsg" class="mnow"></div>
         <ul id="updateCommitsList" class="update-commits" hidden></ul>
@@ -619,6 +624,13 @@
       <div id="folderMsg" class="mnow"></div>
       <div class="note flush">
         HF Hub Cache: <code id="modelFolder">—</code>
+      </div>
+      <div class="lifecycle-row" id="lifecyclePrefRow">
+        <label class="chk">
+          <input type="checkbox" id="autoShutdownChk" checked />
+          <span data-i18n="autoShutdownLabel">Auto-close Studio &amp; free VRAM when last tab closes</span>
+        </label>
+        <div class="note flush" id="autoShutdownHint" data-i18n="autoShutdownHint">Waits ~12s on tab close (never exits while jobs or downloads are running).</div>
       </div>
     </div>
   </div>
@@ -716,6 +728,37 @@
 <!-- Accessible Screen-Reader Live Regions (ariaNotify fallback) -->
 <div id="srAnnouncer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 <div id="srAlert" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
+
+<!-- Native Top-Layer <dialog>: Quit / Force Quit Confirmation Modal -->
+<dialog id="quitModal" class="studio-dialog studio-dialog-sm" closedby="any" aria-labelledby="quitTitle">
+  <div class="modal-head">
+    <h2 id="quitTitle" class="dialog-title" data-i18n="quitModalTitle">Quit Remove AI Watermarks Studio?</h2>
+    <button id="quitCloseBtn" class="ghost sm icon-only" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="quit-body">
+    <p id="quitIdleDesc" class="note flush" data-i18n="quitIdleDesc">This will stop the local Studio server and immediately free RAM and GPU VRAM.</p>
+    <div id="quitBusyBanner" class="quit-busy-banner" role="alert" hidden>
+      <strong id="quitBusyTitle" data-i18n="quitBusyTitle">Active work is in progress!</strong>
+      <p id="quitBusyDesc" data-i18n="quitBusyDesc">Quitting right now will immediately cancel and discard unfinished work:</p>
+      <ul id="quitBusyList" class="quit-busy-list"></ul>
+    </div>
+    <div class="quit-actions">
+      <button id="quitCancelBtn" class="ghost sm" type="button" data-i18n="cancel" autofocus>Cancel</button>
+      <button id="quitConfirmBtn" class="sm" type="button" data-i18n="quitConfirmBtn">Quit Studio</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Studio Stopped / Restarting Fullscreen Overlay -->
+<div id="stoppedOverlay" class="stopped-overlay" role="status" aria-live="polite" hidden>
+  <div class="stopped-card">
+    <div class="drop-ico drop-ico-xl">
+      <svg class="ico ico-lg" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+    </div>
+    <h2 id="stoppedTitle" data-i18n="stoppedTitle">Studio Stopped</h2>
+    <p id="stoppedDesc" data-i18n="stoppedDesc">The local server has shut down and freed RAM/VRAM. You can safely close this browser tab.</p>
+  </div>
+</div>
 
 <!-- Native Top-Layer Manual Popover Toast Stack -->
 <div id="toastStack" class="toast-stack" popover="manual" role="region" aria-label="Notifications"></div>

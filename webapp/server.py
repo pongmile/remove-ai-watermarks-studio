@@ -519,6 +519,23 @@ class JobManager:
         for d in dirs_to_remove:
             shutil.rmtree(d, ignore_errors=True)
 
+    def active_count(self) -> int:
+        with self._lock:
+            return sum(1 for rec in self._jobs.values() if not rec.terminal)
+
+    def cancel_all_active(self) -> int:
+        cancelled = 0
+        with self._lock:
+            for rec in self._jobs.values():
+                if not rec.terminal:
+                    rec.cancelled.set()
+                    rec.events.append({"type": "cancelled", "message": "Cancelled due to Studio shutdown"})
+                    rec.terminal = True
+                    rec.finished_at = time.monotonic()
+                    self._notify_unlocked(rec)
+                    cancelled += 1
+        return cancelled
+
     def cleanup_all(self) -> None:
         with self._lock:
             self._jobs.clear()
@@ -539,9 +556,11 @@ atexit.register(_job_mgr.cleanup_all)
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     _ensure_pools()
     threading.Thread(target=_warmup_cached_onnx, name="raiw-onnx-warmup", daemon=True).start()
+    _start_lifecycle_watchdog()
     try:
         yield
     finally:
+        _stop_lifecycle_watchdog()
         _shutdown_pools()
         _job_mgr.cleanup_all()
 
@@ -2864,3 +2883,297 @@ async def results_zip(request: Request) -> FileResponse:
             "Cache-Control": "no-store",
         },
     )
+
+
+# --- App Lifecycle: Tab Heartbeat, Auto-Shutdown, Safe Quit & Restart --------
+
+_RESTART_EXIT_CODE = 75
+_CLIENT_STALE_SEC = 18.0
+_DEFAULT_SHUTDOWN_GRACE_SEC = 12.0
+
+_lifecycle_lock = threading.Lock()
+_lifecycle_clients: dict[str, float] = {}  # client_id -> last_seen monotonic
+_lifecycle_ever_connected = False
+_lifecycle_zero_since: float | None = None
+_lifecycle_shutting_down = False
+_lifecycle_stop_ev = threading.Event()
+_lifecycle_watchdog_started = False
+_exit_process: Callable[[int], Any] = os._exit
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _auto_shutdown_grace_sec() -> float:
+    raw = os.environ.get("RAIW_AUTO_SHUTDOWN_GRACE_SEC", "")
+    try:
+        val = float(raw)
+        if 2.0 <= val <= 300.0:
+            return val
+    except ValueError:
+        pass
+    return _DEFAULT_SHUTDOWN_GRACE_SEC
+
+
+def _auto_shutdown_enabled() -> bool:
+    """Auto-shutdown activates when launched via Studio launcher unless disabled in settings."""
+    if not _env_flag("RAIW_AUTO_SHUTDOWN", False):
+        return False
+    saved = model_status.load_settings().get("auto_shutdown_on_close")
+    if isinstance(saved, bool):
+        return saved
+    return True
+
+
+def _prune_stale_clients_unlocked(now: float) -> int:
+    global _lifecycle_zero_since
+    stale = [cid for cid, ts in _lifecycle_clients.items() if (now - ts) > _CLIENT_STALE_SEC]
+    for cid in stale:
+        _lifecycle_clients.pop(cid, None)
+    count = len(_lifecycle_clients)
+    if count > 0:
+        _lifecycle_zero_since = None
+    elif _lifecycle_ever_connected and _lifecycle_zero_since is None:
+        _lifecycle_zero_since = now
+    return count
+
+
+def _active_work_summary() -> dict[str, Any]:
+    """Inspect active cleaning jobs, downloads, GPU engine work, and GitHub updates."""
+    active_jobs = _job_mgr.active_count()
+    engine_busy = _engine_lock.locked()
+    if engine_busy and active_jobs == 0:
+        active_jobs = 1
+    dl_state = model_status.download_state()
+    downloading = bool(dl_state.get("active"))
+    updating = _update_lock.locked()
+    reasons: list[str] = []
+    if active_jobs > 0:
+        reasons.append(f"{active_jobs} active clean/video job(s)")
+    if downloading:
+        prof = dl_state.get("profile") or "model"
+        reasons.append(f"model download in progress ({prof})")
+    if updating:
+        reasons.append("GitHub update in progress")
+    return {
+        "busy": bool(active_jobs > 0 or downloading or updating),
+        "active_jobs": active_jobs,
+        "downloading": downloading,
+        "updating": updating,
+        "reasons": reasons,
+    }
+
+
+def _release_gpu_and_cleanup() -> None:
+    """Cancel active downloads/jobs, release cached diffusion engines & VRAM, and remove temp files."""
+    with contextlib.suppress(Exception):
+        model_status.pause_download()
+    with contextlib.suppress(Exception):
+        _job_mgr.cancel_all_active()
+    with contextlib.suppress(Exception):
+        _engines.clear()
+    with contextlib.suppress(Exception):
+        import gc
+
+        gc.collect()
+    with contextlib.suppress(Exception):
+        from remove_ai_watermarks._internal import accelerator
+
+        accelerator.empty_cache()
+    with contextlib.suppress(Exception):
+        _job_mgr.cleanup_all()
+
+
+def _schedule_process_exit(exit_code: int, *, delay_sec: float = 0.35) -> None:
+    global _lifecycle_shutting_down
+    with _lifecycle_lock:
+        if _lifecycle_shutting_down:
+            return
+        _lifecycle_shutting_down = True
+
+    def _do_exit() -> None:
+        time.sleep(max(0.0, delay_sec))
+        _release_gpu_and_cleanup()
+        _exit_process(exit_code)
+
+    threading.Thread(target=_do_exit, name="raiw-lifecycle-exit", daemon=True).start()
+
+
+def _lifecycle_watchdog_loop() -> None:
+    global _lifecycle_zero_since
+    while not _lifecycle_stop_ev.wait(timeout=2.0):
+        if not _auto_shutdown_enabled():
+            continue
+        now = time.monotonic()
+        grace = _auto_shutdown_grace_sec()
+        with _lifecycle_lock:
+            if _lifecycle_shutting_down:
+                return
+            active_tabs = _prune_stale_clients_unlocked(now)
+            zero_since = _lifecycle_zero_since
+            armed = _lifecycle_ever_connected
+
+        if not armed or active_tabs > 0 or zero_since is None:
+            continue
+        if (now - zero_since) < grace:
+            continue
+
+        # Never auto-shutdown while a job, download, or update is still running!
+        work = _active_work_summary()
+        if work["busy"]:
+            with _lifecycle_lock:
+                _lifecycle_zero_since = now
+            continue
+
+        log.info("All browser tabs closed and Studio is idle; shutting down cleanly to free RAM/VRAM.")
+        _schedule_process_exit(0, delay_sec=0.1)
+        return
+
+
+def _start_lifecycle_watchdog() -> None:
+    global _lifecycle_watchdog_started
+    with _lifecycle_lock:
+        if _lifecycle_watchdog_started:
+            return
+        if not _env_flag("RAIW_AUTO_SHUTDOWN", False):
+            return
+        _lifecycle_stop_ev.clear()
+        _lifecycle_watchdog_started = True
+    threading.Thread(target=_lifecycle_watchdog_loop, name="raiw-auto-shutdown", daemon=True).start()
+
+
+def _stop_lifecycle_watchdog() -> None:
+    global _lifecycle_watchdog_started
+    _lifecycle_stop_ev.set()
+    with _lifecycle_lock:
+        _lifecycle_watchdog_started = False
+
+
+@app.get("/lifecycle/status")
+def lifecycle_status() -> dict[str, Any]:
+    """Return active tab count, active-work busy state, and auto-shutdown configuration."""
+    now = time.monotonic()
+    with _lifecycle_lock:
+        active_tabs = _prune_stale_clients_unlocked(now)
+        shutting_down = _lifecycle_shutting_down
+    work = _active_work_summary()
+    return {
+        **work,
+        "active_tabs": active_tabs,
+        "auto_shutdown_available": _env_flag("RAIW_AUTO_SHUTDOWN", False),
+        "auto_shutdown_enabled": _auto_shutdown_enabled(),
+        "grace_seconds": _auto_shutdown_grace_sec(),
+        "allow_restart": _env_flag("RAIW_ALLOW_RESTART", False),
+        "shutting_down": shutting_down,
+    }
+
+
+@app.post("/lifecycle/ping")
+def lifecycle_ping(client_id: str = Form(...)) -> dict[str, Any]:
+    """Register or refresh an open browser tab heartbeat."""
+    global _lifecycle_ever_connected, _lifecycle_zero_since
+    cid = (client_id or "").strip()[:64]
+    if not cid:
+        raise HTTPException(status_code=400, detail="Missing client_id.")
+    now = time.monotonic()
+    with _lifecycle_lock:
+        _lifecycle_clients[cid] = now
+        _lifecycle_ever_connected = True
+        _lifecycle_zero_since = None
+        active_tabs = _prune_stale_clients_unlocked(now)
+    return {
+        "ok": True,
+        "active_tabs": active_tabs,
+        "auto_shutdown_enabled": _auto_shutdown_enabled(),
+    }
+
+
+@app.post("/lifecycle/bye")
+def lifecycle_bye(client_id: str = Form(...)) -> dict[str, Any]:
+    """Mark a browser tab as closed (invoked via keepalive fetch on pagehide)."""
+    global _lifecycle_zero_since
+    cid = (client_id or "").strip()[:64]
+    now = time.monotonic()
+    with _lifecycle_lock:
+        if cid:
+            _lifecycle_clients.pop(cid, None)
+        active_tabs = _prune_stale_clients_unlocked(now)
+        if active_tabs == 0 and _lifecycle_ever_connected:
+            _lifecycle_zero_since = now
+    return {"ok": True, "active_tabs": active_tabs}
+
+
+@app.post("/lifecycle/config")
+def lifecycle_config(auto_shutdown_on_close: bool = Form(...)) -> dict[str, Any]:
+    """Toggle automatic server shutdown when the last browser tab is closed."""
+    model_status.save_settings({"auto_shutdown_on_close": bool(auto_shutdown_on_close)})
+    return {
+        "ok": True,
+        "auto_shutdown_available": _env_flag("RAIW_AUTO_SHUTDOWN", False),
+        "auto_shutdown_enabled": _auto_shutdown_enabled(),
+    }
+
+
+@app.post("/lifecycle/shutdown")
+def lifecycle_shutdown(force: bool = Form(False)) -> dict[str, Any]:
+    """Shut down the Studio server and free VRAM. Returns 409 if work is in progress unless force=True."""
+    work = _active_work_summary()
+    if work["busy"] and not force:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                **work,
+                "detail": (
+                    "Active work is in progress ("
+                    + ", ".join(work["reasons"])
+                    + "). Confirm Force Quit to stop immediately and discard unfinished work."
+                ),
+            },
+        )
+    _schedule_process_exit(0, delay_sec=0.35)
+    return {
+        "ok": True,
+        "shutting_down": True,
+        "forced": bool(force and work["busy"]),
+        "message": "Studio is shutting down cleanly and freeing RAM/VRAM.",
+    }
+
+
+@app.post("/lifecycle/restart")
+def lifecycle_restart(force: bool = Form(False)) -> dict[str, Any]:
+    """Restart Studio (when launched via Start Studio.cmd / run_webapp). Returns 409 if busy unless force=True."""
+    if not _env_flag("RAIW_ALLOW_RESTART", False):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "restart_supported": False,
+                "detail": "Auto-restart requires launching via Start Studio.cmd, run_webapp.ps1, or run_webapp.sh.",
+            },
+        )
+    work = _active_work_summary()
+    if work["busy"] and not force:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                **work,
+                "detail": (
+                    "Active work is in progress ("
+                    + ", ".join(work["reasons"])
+                    + "). Confirm Force Restart to stop immediately and discard unfinished work."
+                ),
+            },
+        )
+    _schedule_process_exit(_RESTART_EXIT_CODE, delay_sec=0.35)
+    return {
+        "ok": True,
+        "restarting": True,
+        "forced": bool(force and work["busy"]),
+        "message": "Studio is restarting… this page will reconnect automatically.",
+    }

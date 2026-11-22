@@ -215,6 +215,32 @@ const I18N = {
     holdSpaceHint: 'Hold Space to peek Before',
     autoDetectFound: 'Detected {n} watermark region(s) — adjust or click Erase',
     autoDetectNone: 'No known watermark boxes detected automatically',
+    netOffline: 'Network error',
+    checkFailed: 'Check failed',
+    netOfflineToast: 'GitHub unreachable after 3 retries',
+    quitBtn: 'Quit',
+    restartStudioBtn: 'Restart Studio',
+    autoShutdownLabel: 'Auto-close Studio & free VRAM when last tab closes',
+    autoShutdownHint: 'Waits ~12s on tab close (never exits while jobs or downloads are running).',
+    autoShutdownUnavailable: 'Launch via Start Studio.cmd or run_webapp to enable auto-close on tab close.',
+    quitModalTitle: 'Quit Remove AI Watermarks Studio?',
+    quitIdleDesc: 'This will stop the local Studio server and immediately free RAM and GPU VRAM.',
+    quitBusyTitle: 'Active work is in progress!',
+    quitBusyDesc: 'Quitting right now will immediately cancel and discard unfinished work:',
+    quitConfirmBtn: 'Quit Studio',
+    quitForceBtn: 'Force Quit (Discard Work)',
+    restartModalTitle: 'Restart Remove AI Watermarks Studio?',
+    restartIdleDesc: 'The local server will restart cleanly and reload this page automatically.',
+    restartForceBtn: 'Force Restart (Discard Work)',
+    stoppedTitle: 'Studio Stopped',
+    stoppedDesc: 'The local server has shut down and freed RAM/VRAM. You can safely close this browser tab.',
+    restartingTitle: 'Restarting Studio…',
+    restartingDesc: 'Reloading server with updated code — this page will reconnect automatically.',
+    busyJobReason: '{n} image/video cleaning job(s) running',
+    busyDownloadReason: 'Model download in progress',
+    busyUpdateReason: 'GitHub update in progress',
+    autoShutdownSavedOn: 'Auto-close on last tab enabled',
+    autoShutdownSavedOff: 'Auto-close on last tab disabled',
   },
   th: {
     appTitle: 'ลบลายน้ำ AI Studio',
@@ -369,6 +395,32 @@ const I18N = {
     holdSpaceHint: 'กด Space ค้างเพื่อดูภาพต้นฉบับ',
     autoDetectFound: 'ตรวจพบลายน้ำ {n} จุด — ปรับแก้หรือกดลบได้ทันที',
     autoDetectNone: 'ไม่พบกรอบลายน้ำมาตรฐานอัตโนมัติ',
+    netOffline: 'ออฟไลน์ / เน็ตขัดข้อง',
+    checkFailed: 'เช็กไม่สำเร็จ',
+    netOfflineToast: 'เชื่อมต่อ GitHub ไม่ได้ (ลองซ้ำ 3 ครั้งแล้ว)',
+    quitBtn: 'ปิดแอป',
+    restartStudioBtn: 'รีสตาร์ทแอป',
+    autoShutdownLabel: 'ปิดแอปและคืน VRAM อัตโนมัติเมื่อปิดแท็บสุดท้าย',
+    autoShutdownHint: 'รอ ~12 วินาทีหลังปิดแท็บ (จะไม่ปิดหากมีงานหรือโหลดโมเดลค้างอยู่)',
+    autoShutdownUnavailable: 'เปิดผ่าน Start Studio.cmd หรือ run_webapp เพื่อใช้โหมดปิดอัตโนมัติ',
+    quitModalTitle: 'ปิด Remove AI Watermarks Studio?',
+    quitIdleDesc: 'จะหยุดเซิร์ฟเวอร์ในเครื่องและคืน RAM / VRAM การ์ดจอทันที',
+    quitBusyTitle: 'มีงานค้างกำลังทำงานอยู่!',
+    quitBusyDesc: 'หากปิดตอนนี้ งานที่ยังไม่เสร็จจะถูกยกเลิกและทิ้งทันที:',
+    quitConfirmBtn: 'ปิดแอป',
+    quitForceBtn: 'ปิดแอปทันที (ทิ้งงานค้าง)',
+    restartModalTitle: 'รีสตาร์ท Remove AI Watermarks Studio?',
+    restartIdleDesc: 'เซิร์ฟเวอร์จะรีสตาร์ทและโหลดหน้าเว็บใหม่ให้อัตโนมัติ',
+    restartForceBtn: 'บังคับรีสตาร์ท (ทิ้งงานค้าง)',
+    stoppedTitle: 'ปิดแอปเรียบร้อยแล้ว',
+    stoppedDesc: 'หยุดเซิร์ฟเวอร์และคืน RAM/VRAM แล้ว คุณสามารถปิดแท็บเบราว์เซอร์นี้ได้เลย',
+    restartingTitle: 'กำลังรีสตาร์ท Studio…',
+    restartingDesc: 'กำลังโหลดโค้ดใหม่ — หน้าเว็บจะเชื่อมต่อกลับให้อัตโนมัติ',
+    busyJobReason: 'กำลังลบลายน้ำรูปภาพ/วิดีโออยู่ {n} งาน',
+    busyDownloadReason: 'กำลังดาวน์โหลดโมเดลค้างอยู่',
+    busyUpdateReason: 'กำลังอัปเดตจาก GitHub ค้างอยู่',
+    autoShutdownSavedOn: 'เปิดโหมดปิดแอปอัตโนมัติเมื่อปิดแท็บสุดท้ายแล้ว',
+    autoShutdownSavedOff: 'ปิดโหมดปิดแอปอัตโนมัติแล้ว',
   },
 };
 
@@ -401,6 +453,7 @@ function applyLanguage(lang) {
   updateVidOptSummary();
   updateImageActionRow();
   if (modelSnap) renderModels(modelSnap);
+  if (typeof syncLifecycleUI === 'function') syncLifecycleUI();
   if (updateSnap) renderUpdateStatus(updateSnap);
 }
 
@@ -841,7 +894,7 @@ function renderUpdateStatus(u) {
   applyBtn.disabled = dirty;
   if (u.error) {
     badge.className = 'badge warn';
-    badge.textContent = u.offline ? (lang === 'th' ? 'ออฟไลน์ / เน็ตขัดข้อง' : 'Network error') : (lang === 'th' ? 'เช็กไม่สำเร็จ' : 'Check failed');
+    badge.textContent = u.offline ? t('netOffline') : t('checkFailed');
     $('updateMsg').className = 'mnow err';
     $('updateMsg').textContent = u.error;
   }
@@ -866,7 +919,7 @@ $('checkUpdateBtn').addEventListener('click', async () => {
     if (data.error) {
       $('updateMsg').className = 'mnow err';
       $('updateMsg').textContent = data.error;
-      showToast(data.offline ? (lang === 'th' ? 'เชื่อมต่อ GitHub ไม่ได้ (ลองซ้ำ 3 ครั้งแล้ว)' : 'GitHub unreachable after 3 retries') : data.error, 'err', 4500);
+      showToast(data.offline ? t('netOfflineToast') : data.error, 'err', 4500);
     } else {
       const n = Math.max(Number(data.behind_origin || 0), Number(data.behind_upstream || 0));
       const retryNote = data.attempts && data.attempts > 1 ? ` (retry ×${data.attempts})` : '';
@@ -883,7 +936,9 @@ $('checkUpdateBtn').addEventListener('click', async () => {
   }
 });
 
+let updateApplying = false;
 $('applyUpdateBtn').addEventListener('click', async () => {
+  updateApplying = true;
   $('applyUpdateBtn').disabled = true;
   $('checkUpdateBtn').disabled = true;
   $('updateMsg').className = 'mnow';
@@ -893,6 +948,9 @@ $('applyUpdateBtn').addEventListener('click', async () => {
     if (res.restart_required) {
       $('updateMsg').className = 'mnow ok';
       $('updateMsg').textContent = res.message || t('restartRequired');
+      if (lifecycleState.allow_restart && $('restartStudioBtn')) {
+        $('restartStudioBtn').hidden = false;
+      }
       showToast(t('restartRequired'), 'ok', 6000);
     } else {
       $('updateMsg').className = 'mnow ' + (res.ok ? 'ok' : 'err');
@@ -905,6 +963,7 @@ $('applyUpdateBtn').addEventListener('click', async () => {
     $('updateMsg').textContent = String(err.message || err);
     showToast(String(err.message || err), 'err');
   } finally {
+    updateApplying = false;
     $('applyUpdateBtn').disabled = false;
     $('checkUpdateBtn').disabled = false;
   }
@@ -3123,7 +3182,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  if ($('vidPreviewModal').open) return;
+  if ($('vidPreviewModal').open || ($('quitModal') && $('quitModal').open)) return;
 
   if ($('kbdModal').open) {
     if (e.key === '?') { e.preventDefault(); toggleKbdModal(false); }
@@ -3197,5 +3256,271 @@ document.addEventListener('keyup', (e) => {
   }
 });
 
+// --- App Lifecycle: Heartbeat, Active-Work Warning, Safe Quit & Restart ------
+let lifecycleState = {
+  busy: false,
+  active_jobs: 0,
+  downloading: false,
+  updating: false,
+  reasons: [],
+  auto_shutdown_available: false,
+  auto_shutdown_enabled: false,
+  allow_restart: false,
+};
+let lifecycleClientId = '';
+let lifecyclePingTimer = null;
+let studioShuttingDown = false;
+let quitModalMode = 'quit'; // 'quit' | 'restart'
+let quitModalNeedsForce = false;
+
+try {
+  lifecycleClientId = sessionStorage.getItem('raiw_client_id') || '';
+  if (!lifecycleClientId) {
+    lifecycleClientId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+      ? crypto.randomUUID()
+      : 'tab_' + Math.random().toString(36).slice(2) + '_' + Date.now().toString(36);
+    sessionStorage.setItem('raiw_client_id', lifecycleClientId);
+  }
+} catch {
+  lifecycleClientId = 'tab_' + Math.random().toString(36).slice(2) + '_' + Date.now().toString(36);
+}
+
+function collectLocalBusySummary() {
+  const runningImg = Array.isArray(imgItems)
+    ? imgItems.filter((it) => it.status === 'running' || it.status === 'queued').length
+    : 0;
+  const runningJobs = Math.max(imgActiveWorkers || 0, runningImg) + (vidRunning ? 1 : 0);
+  const reasons = [];
+  if (runningJobs > 0) reasons.push(t('busyJobReason', { n: runningJobs }));
+  if (modelBusy) reasons.push(t('busyDownloadReason'));
+  if (updateApplying) reasons.push(t('busyUpdateReason'));
+  return {
+    busy: runningJobs > 0 || modelBusy || updateApplying,
+    active_jobs: runningJobs,
+    downloading: modelBusy,
+    updating: updateApplying,
+    reasons,
+  };
+}
+
+function mergeBusyReasons(serverSnap) {
+  const local = collectLocalBusySummary();
+  const totalJobs = Math.max(local.active_jobs, Number((serverSnap && serverSnap.active_jobs) || 0));
+  const downloading = local.downloading || Boolean(serverSnap && serverSnap.downloading);
+  const updating = local.updating || Boolean(serverSnap && serverSnap.updating);
+  const reasons = [];
+  if (totalJobs > 0) reasons.push(t('busyJobReason', { n: totalJobs }));
+  if (downloading) reasons.push(t('busyDownloadReason'));
+  if (updating) reasons.push(t('busyUpdateReason'));
+  return {
+    busy: reasons.length > 0 || Boolean(serverSnap && serverSnap.busy),
+    reasons: reasons.length ? reasons : ((serverSnap && serverSnap.reasons) || []),
+  };
+}
+
+async function fetchLifecycleStatus() {
+  if (studioShuttingDown) return lifecycleState;
+  try {
+    const r = await fetch('/lifecycle/status');
+    if (r.ok) {
+      const data = await r.json();
+      lifecycleState = { ...lifecycleState, ...data };
+      syncLifecycleUI();
+    }
+  } catch {}
+  return lifecycleState;
+}
+
+function syncLifecycleUI() {
+  const chk = $('autoShutdownChk');
+  const hint = $('autoShutdownHint');
+  const restartBtn = $('restartStudioBtn');
+  if (chk) {
+    chk.checked = Boolean(lifecycleState.auto_shutdown_enabled);
+    chk.disabled = !lifecycleState.auto_shutdown_available;
+  }
+  if (hint) {
+    hint.textContent = lifecycleState.auto_shutdown_available
+      ? t('autoShutdownHint')
+      : t('autoShutdownUnavailable');
+  }
+  if (restartBtn) {
+    restartBtn.hidden = !lifecycleState.allow_restart;
+  }
+}
+
+async function sendLifecyclePing() {
+  if (studioShuttingDown) return;
+  try {
+    await apiPostForm('/lifecycle/ping', { client_id: lifecycleClientId });
+  } catch {}
+}
+
+function sendLifecycleBye() {
+  if (studioShuttingDown) return;
+  try {
+    fetch('/lifecycle/bye', {
+      method: 'POST',
+      headers: {
+        'X-RAIW-Request': '1',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'client_id=' + encodeURIComponent(lifecycleClientId),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
+}
+
+// Warn user natively when closing/refreshing tab if any job, download, or update is active
+window.addEventListener('beforeunload', (e) => {
+  if (studioShuttingDown) return;
+  const merged = mergeBusyReasons(lifecycleState);
+  if (merged.busy) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+window.addEventListener('pagehide', () => {
+  sendLifecycleBye();
+});
+
+async function openQuitModal(mode = 'quit') {
+  quitModalMode = mode;
+  const dlg = $('quitModal');
+  const snap = await fetchLifecycleStatus();
+  const merged = mergeBusyReasons(snap);
+  quitModalNeedsForce = merged.busy;
+
+  const isRestart = mode === 'restart';
+  $('quitTitle').textContent = isRestart ? t('restartModalTitle') : t('quitModalTitle');
+  $('quitIdleDesc').textContent = isRestart ? t('restartIdleDesc') : t('quitIdleDesc');
+  $('quitIdleDesc').hidden = merged.busy;
+
+  const banner = $('quitBusyBanner');
+  const listEl = $('quitBusyList');
+  if (merged.busy) {
+    banner.hidden = false;
+    $('quitBusyTitle').textContent = t('quitBusyTitle');
+    $('quitBusyDesc').textContent = t('quitBusyDesc');
+    listEl.innerHTML = merged.reasons.map((r) => `<li>${esc(r)}</li>`).join('');
+  } else {
+    banner.hidden = true;
+    listEl.innerHTML = '';
+  }
+
+  const confirmBtn = $('quitConfirmBtn');
+  confirmBtn.disabled = false;
+  confirmBtn.classList.toggle('btn-danger', merged.busy);
+  if (isRestart) {
+    confirmBtn.textContent = merged.busy ? t('restartForceBtn') : t('restartStudioBtn');
+  } else {
+    confirmBtn.textContent = merged.busy ? t('quitForceBtn') : t('quitConfirmBtn');
+  }
+
+  if (!dlg.open) dlg.showModal();
+}
+
+function closeQuitModal() {
+  const dlg = $('quitModal');
+  if (dlg && dlg.open) dlg.close();
+}
+
+async function executeLifecycleAction() {
+  const confirmBtn = $('quitConfirmBtn');
+  confirmBtn.disabled = true;
+  const isRestart = quitModalMode === 'restart';
+  const endpoint = isRestart ? '/lifecycle/restart' : '/lifecycle/shutdown';
+  try {
+    const fd = new FormData();
+    fd.append('force', quitModalNeedsForce ? 'true' : 'false');
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'X-RAIW-Request': '1' },
+      body: fd,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 409) {
+      // Server detected work started right as user clicked — escalate dialog to Force Quit warning
+      lifecycleState = { ...lifecycleState, ...data };
+      await openQuitModal(quitModalMode);
+      return;
+    }
+    if (!r.ok || data.ok === false) {
+      throw new Error(data.detail || `HTTP ${r.status}`);
+    }
+
+    studioShuttingDown = true;
+    if (lifecyclePingTimer) {
+      clearInterval(lifecyclePingTimer);
+      lifecyclePingTimer = null;
+    }
+    closeQuitModal();
+    if (drawerOpen) setModelDrawer(false);
+
+    const overlay = $('stoppedOverlay');
+    $('stoppedTitle').textContent = isRestart ? t('restartingTitle') : t('stoppedTitle');
+    $('stoppedDesc').textContent = isRestart ? t('restartingDesc') : t('stoppedDesc');
+    overlay.hidden = false;
+
+    if (isRestart) {
+      const waitReconnect = async () => {
+        for (let i = 0; i < 40; i++) {
+          await new Promise((res) => setTimeout(res, 750));
+          try {
+            const hr = await fetch('/health', { cache: 'no-store' });
+            if (hr.ok) {
+              window.location.reload();
+              return;
+            }
+          } catch {}
+        }
+      };
+      waitReconnect();
+    } else {
+      // Attempt to close tab (succeeds automatically if launched as app/script-opened tab)
+      setTimeout(() => {
+        try { window.close(); } catch {}
+      }, 450);
+    }
+  } catch (err) {
+    confirmBtn.disabled = false;
+    showToast(String(err.message || err), 'err');
+  }
+}
+
+if ($('quitBtn')) $('quitBtn').addEventListener('click', () => openQuitModal('quit'));
+if ($('restartStudioBtn')) $('restartStudioBtn').addEventListener('click', () => openQuitModal('restart'));
+if ($('quitCloseBtn')) $('quitCloseBtn').addEventListener('click', closeQuitModal);
+if ($('quitCancelBtn')) $('quitCancelBtn').addEventListener('click', closeQuitModal);
+if ($('quitConfirmBtn')) $('quitConfirmBtn').addEventListener('click', executeLifecycleAction);
+if ($('quitModal')) {
+  $('quitModal').addEventListener('close', () => {
+    $('quitModal').returnValue = '';
+  });
+}
+if ($('autoShutdownChk')) {
+  $('autoShutdownChk').addEventListener('change', async (e) => {
+    const enabled = Boolean(e.target.checked);
+    try {
+      const res = await apiPostForm('/lifecycle/config', { auto_shutdown_on_close: enabled ? 'true' : 'false' });
+      lifecycleState = { ...lifecycleState, ...res };
+      syncLifecycleUI();
+      showToast(enabled ? t('autoShutdownSavedOn') : t('autoShutdownSavedOff'), 'info', 2500);
+    } catch (err) {
+      e.target.checked = !enabled;
+      showToast(String(err.message || err), 'err');
+    }
+  });
+}
+
+// Start lightweight 5s heartbeat + initial lifecycle status sync
+sendLifecyclePing();
+fetchLifecycleStatus();
+lifecyclePingTimer = setInterval(() => {
+  sendLifecyclePing();
+}, 5000);
+
 // Initialize language labels
 applyLanguage(curLang);
+syncLifecycleUI();

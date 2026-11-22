@@ -34,7 +34,7 @@ Everything from upstream `wiltodelta/remove-ai-watermarks` (`v0.66.0` CLI, Pytho
 | **Visual AI Inspector** | JSON / CLI text output | **Live SVG Bounding-Box Overlay**, Source Classify v8 confidence meter, vendor verdict, C2PA/EXIF tree, and 1-click jump to Clean |
 | **Universal GPU / NPU / CPU** | NVIDIA CUDA & Apple MPS primary | **Auto-detected Universal Accelerator Layer** — NVIDIA RTX 50 Blackwell (`cu128`-safe), RTX 40/30/20, **GTX 10/16**, **AMD Radeon (ROCm & DirectML)**, **Intel Arc (XPU & OpenVINO)**, **Apple MPS**, **AI NPUs (OpenVINO / DirectML / QNN)**, and **CPU** + live Compute Device selector |
 | **Language & Theme** | English CLI | **Instant English / ไทย (Thai) UI** + zero-flash **Auto / Light / Dark** (`light-dark()`) themes |
-| **Installation & Launch** | Manual `uv` / `pip` setup | **1-Click Cross-Platform Installers** (`install.ps1` / `install.sh`), Desktop Shortcut (`make_shortcut.ps1`), and `Start Studio.cmd` / `run_webapp.sh` |
+| **Installation & Launch** | Manual `uv` / `pip` setup | **1-Click Cross-Platform Installers** (`install.ps1` / `install.sh`), Desktop Shortcut (`make_shortcut.ps1`), **Smart Single-Instance Launcher** (`Start Studio.cmd` / `run_webapp.sh`), **Auto-Shutdown on Last Tab Close**, and **Safe Quit / Restart** with active-work warnings |
 | **GitHub Updates** | Manual `git pull` & reinstall | **In-App + 1-Click Resilient Updater** (`Update Studio.cmd` / `update.ps1` / `update.sh`) with **3× exponential-backoff retries**, flaky-network recovery, `-AutoStash`, and **GPU PyTorch wheel protection** |
 | **Model Management** | CLI cache commands | **Visual Models & Storage Drawer** with live download progress, Pause/Resume, **3× auto-retry** on network drops, storage folder relocation, and hardlink deduplication |
 | **Modern Web Architecture** | — | Built per **GoogleChrome/modern-web-guidance**: native `<dialog closedby="any">`, Popover API (`popover="auto"` / `"manual"`), CSS `@layer`, `light-dark()`, `@container`, `:has()`, View Transitions, IME-safe shortcuts |
@@ -108,6 +108,10 @@ chmod +x install.sh run_webapp.sh update.sh
 ```
 
 Open **http://127.0.0.1:8000** in your browser.
+
+- **Smart Launch (No Duplicate Port Errors):** Double-clicking **`Start Studio.cmd`** (or running `run_webapp.ps1 -Open` / `run_webapp.sh --open`) while Studio is already running opens your existing session directly.
+- **Easy & Safe Shutdown:** Click **Quit** in the top-right header (or simply close the last Studio browser tab — Studio automatically shuts down and frees RAM/VRAM after ~12 seconds when idle). If any cleaning job, model download, or GitHub update is still running, Studio warns you before closing so unfinished work is never lost accidentally.
+- **1-Click Restart:** After updating from GitHub, click **Restart Studio** inside the **Models & Updates** drawer to reload the new code automatically.
 
 > **Lightweight install (no large PyTorch diffusion stack):** Pass `-SkipDeepClean` (Windows) or `--skip-deep-clean` (macOS/Linux) if you only need **Quick Clean**, **Manual Erase**, **Metadata Strip**, **Inspect**, and **Visible Video Clean**.
 >
