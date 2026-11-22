@@ -30,6 +30,11 @@ from typing import Any, ClassVar
 
 from PIL import Image
 
+from remove_ai_watermarks._internal.accelerator import (
+    empty_device_cache,
+    make_generator,
+    resolve_dtype,
+)
 from remove_ai_watermarks._internal.two_stage_pipeline import (
     TwoStageZImagePipeline,
     _load_prompt_payload,
@@ -88,7 +93,6 @@ class ChromaZImagePipeline(TwoStageZImagePipeline):
     def _load_global(self) -> Any:
         if self._chroma_pipe is not None:
             return self._chroma_pipe
-        self._require_cuda()
         try:
             import torch
             from diffusers import ChromaImg2ImgPipeline
@@ -98,9 +102,11 @@ class ChromaZImagePipeline(TwoStageZImagePipeline):
                 "Install: pip install 'remove-ai-watermarks[qwen-zimage]'"
             ) from exc
 
-        self._progress("Loading Chroma1-HD (bf16)...")
+        device_kind = self._device_kind()
+        dtype = self.torch_dtype if self.torch_dtype is not None else resolve_dtype(device_kind, self.profile_name)
+        self._progress(f"Loading Chroma1-HD ({device_kind}, {dtype})...")
         token = {"token": self.hf_token} if self.hf_token else {}
-        pipe = ChromaImg2ImgPipeline.from_pretrained(CHROMA_MODEL_ID, torch_dtype=torch.bfloat16, **token)
+        pipe = ChromaImg2ImgPipeline.from_pretrained(CHROMA_MODEL_ID, torch_dtype=dtype, **token)
         pipe = pipe.to(self.device)
 
         # Encode and cache the static prompt once; subsequent containers load
@@ -108,11 +114,11 @@ class ChromaZImagePipeline(TwoStageZImagePipeline):
         cache_path = _prompt_cache_path(*_CHROMA_PROMPT_CACHE_KEY)
         if self.cache_prompt_embeddings and cache_path.exists():
             self._progress("Loading cached Chroma1 prompt embeddings...")
-            payload = _load_prompt_payload(cache_path, self.device, torch.bfloat16)
+            payload = _load_prompt_payload(cache_path, self.device, dtype)
             self._chroma_embeds = payload
             # Free the T5 encoder: setting to None releases the VRAM reference.
             pipe.text_encoder = None
-            torch.cuda.empty_cache()
+            empty_device_cache(device_kind)
             self._chroma_t5_freed = True
         elif self.cache_prompt_embeddings:
             self._progress("Encoding and caching Chroma1 prompt...")
@@ -131,11 +137,11 @@ class ChromaZImagePipeline(TwoStageZImagePipeline):
                 "negative_prompt_attention_mask": n_mask,
             }
             _store_prompt_payload(cache_path, payload)
-            loaded = _load_prompt_payload(cache_path, self.device, torch.bfloat16)
+            loaded = _load_prompt_payload(cache_path, self.device, dtype)
             self._chroma_embeds = loaded
             # Free the T5 encoder: setting to None releases the VRAM reference.
             pipe.text_encoder = None
-            torch.cuda.empty_cache()
+            empty_device_cache(device_kind)
             self._chroma_t5_freed = True
         else:
             self._chroma_embeds = None
@@ -145,14 +151,12 @@ class ChromaZImagePipeline(TwoStageZImagePipeline):
         return pipe
 
     def _run_global(self, image: Image.Image, strength: float, seed: int | None) -> Image.Image:
-        import torch
-
         pipe = self._load_global()
         target = chroma_target_size(image.width, image.height)
         prepared = image if image.size == target else image.resize(target, Image.Resampling.LANCZOS)
         steps = requested_steps(CHROMA_NOMINAL_STEPS, strength)
         self._progress(f"Running Chroma1 pass: strength={strength:.4f}, requested steps={steps}...")
-        generator = torch.Generator(device=self.device).manual_seed(seed) if seed is not None else None
+        generator = make_generator(self.device, self._device_kind(), seed)
 
         # Pass cached embeddings when available to skip the T5 inference.
         embeds_kwargs: dict[str, Any] = {}

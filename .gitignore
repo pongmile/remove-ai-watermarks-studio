@@ -75,3 +75,9 @@ gfpgan/
 /.opencode/
 /opencode.json
 /opencode.jsonc
+
+# Studio local runtime & shortcuts
+webapp/settings.json
+webapp/__pycache__/
+models/
+*.lnk

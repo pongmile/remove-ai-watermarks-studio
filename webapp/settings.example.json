@@ -1,0 +1,5 @@
+﻿{
+  "model_dir": "./models",
+  "default_profile": "sdxl-zimage",
+  "default_backend": "auto"
+}

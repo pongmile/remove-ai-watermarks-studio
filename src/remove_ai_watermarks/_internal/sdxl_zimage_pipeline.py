@@ -22,6 +22,10 @@ from typing import Any, ClassVar
 
 from PIL import Image
 
+from remove_ai_watermarks._internal.accelerator import (
+    make_generator,
+    resolve_dtype,
+)
 from remove_ai_watermarks._internal.two_stage_pipeline import (
     _GLOBAL_NEGATIVE,
     _GLOBAL_PROMPT,
@@ -90,7 +94,6 @@ class SdxlZImagePipeline(TwoStageZImagePipeline):
     def _load_global(self) -> Any:
         if self._sdxl_pipe is not None:
             return self._sdxl_pipe
-        self._require_cuda()
         import torch
         from diffusers import (
             AutoencoderKL,
@@ -100,44 +103,54 @@ class SdxlZImagePipeline(TwoStageZImagePipeline):
         )
         from huggingface_hub import hf_hub_download
 
-        self._progress("Loading SDXL, Lightning LoRA, and Canny ControlNet...")
+        device_kind = self._device_kind()
+        dtype = self.torch_dtype if self.torch_dtype is not None else resolve_dtype(device_kind, self.profile_name)
+        self._progress(f"Loading SDXL, Lightning LoRA, and Canny ControlNet ({device_kind})...")
         token = {"token": self.hf_token} if self.hf_token else {}
-        controlnet = ControlNetModel.from_pretrained(CONTROLNET_CANNY_MODEL, torch_dtype=torch.float16, **token)
-        vae = AutoencoderKL.from_pretrained(SDXL_VAE_MODEL_ID, torch_dtype=torch.float16, **token)
-        pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(
-            SDXL_MODEL_ID,
-            controlnet=controlnet,
-            vae=vae,
-            torch_dtype=torch.float16,
-            variant="fp16",
-            add_watermarker=False,
+        controlnet = ControlNetModel.from_pretrained(CONTROLNET_CANNY_MODEL, torch_dtype=dtype, **token)
+        vae = AutoencoderKL.from_pretrained(SDXL_VAE_MODEL_ID, torch_dtype=dtype, **token)
+        pipe_kwargs: dict[str, Any] = {
+            "controlnet": controlnet,
+            "vae": vae,
+            "torch_dtype": dtype,
+            "add_watermarker": False,
             **token,
-        )
+        }
+        if dtype == torch.float16:
+            pipe_kwargs["variant"] = "fp16"
+        pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(SDXL_MODEL_ID, **pipe_kwargs)
         resident = self._keep_global_models_resident()
-        if resident:
+        supports_seq_offload = device_kind in ("cuda", "rocm", "xpu")
+        if resident or not supports_seq_offload:
             pipe = pipe.to(self.device)
         pipe.load_lora_weights(hf_hub_download(SDXL_LIGHTNING_MODEL_ID, SDXL_LIGHTNING_PATTERN, **token))
         pipe.fuse_lora()
         # SDXL-Lightning is distilled against trailing timestep spacing.
         pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config, timestep_spacing="trailing")
-        if not resident:
+        if self._total_vram_gib() <= 20.0 or device_kind not in ("cuda", "rocm"):
+            if hasattr(pipe, "enable_vae_slicing"):
+                pipe.enable_vae_slicing()
+            if hasattr(pipe, "enable_vae_tiling"):
+                pipe.enable_vae_tiling()
+        if not resident and supports_seq_offload:
             # After the fuse: the offload hooks keep their own CPU copy of each weight
             # and stream that copy, so fusing later would never reach what runs.
             self._progress("Streaming the SDXL stack from CPU (card below the residency floor)...")
-            pipe.enable_sequential_cpu_offload(device=self.device, gpu_id=torch.cuda.current_device())
+            if device_kind in ("cuda", "rocm"):
+                pipe.enable_sequential_cpu_offload(device=self.device, gpu_id=torch.cuda.current_device())
+            else:
+                pipe.enable_sequential_cpu_offload(device=str(self.device))
         self._sdxl_pipe = pipe
         return pipe
 
     def _run_global(self, image: Image.Image, strength: float, seed: int | None) -> Image.Image:
-        import torch
-
         pipe = self._load_global()
         target = sdxl_target_size(image.width, image.height)
         prepared = image if image.size == target else image.resize(target, Image.Resampling.LANCZOS)
         control = build_canny_control_image(prepared)
         steps = requested_steps(SDXL_STEPS, strength)
         self._progress(f"Running SDXL Canny pass: strength={strength:.4f}, steps={SDXL_STEPS} of {steps}...")
-        generator = torch.Generator(device=self.device).manual_seed(seed) if seed is not None else None
+        generator = make_generator(self.device, self._device_kind(), seed)
         result = pipe(
             prompt=_GLOBAL_PROMPT,
             negative_prompt=_GLOBAL_NEGATIVE,

@@ -34,6 +34,7 @@ Re-run it before changing any of them.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -58,8 +59,18 @@ _MIGAN_REPO = "andraniksargsyan/migan"
 _MIGAN_FILE = "migan.onnx"
 
 # Cached onnxruntime sessions, keyed by backend name (loading is expensive; reuse
-# across calls).
+# across calls), protected by a lock for thread-safe concurrent initialization.
 _sessions: dict[str, object] = {}
+_sessions_lock = threading.Lock()
+
+_BATCHING_ONNX_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "CUDAExecutionProvider",
+        "ROCMExecutionProvider",
+        "DmlExecutionProvider",
+        "OpenVINOExecutionProvider",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -216,30 +227,29 @@ def lama_available() -> bool:
 
 
 def _get_session(name: str, repo_id: str, filename: str, label: str) -> object:
-    """Load (once) an ONNX session, downloading the model on first use."""
+    """Load (once, thread-safely) an ONNX session, downloading the model on first use."""
     cached = _sessions.get(name)
     if cached is not None:
         return cached
 
-    import onnxruntime as ort
-    from huggingface_hub import hf_hub_download
+    with _sessions_lock:
+        cached = _sessions.get(name)
+        if cached is not None:
+            return cached
 
-    try:
-        model_path = hf_hub_download(repo_id=repo_id, filename=filename)
-    except Exception as exc:
-        logger.warning("Downloading %s model %s from %s failed: %s", label, filename, repo_id, exc)
-        raise
-    logger.info("Loading %s model: %s", label, model_path)
-    available = set(getattr(ort, "get_available_providers", lambda: ["CPUExecutionProvider"])())
-    preferred = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider") if p in available] or [
-        "CPUExecutionProvider"
-    ]
-    try:
-        session = ort.InferenceSession(model_path, providers=preferred)
-    except Exception:
-        session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-    _sessions[name] = session
-    return session
+        from huggingface_hub import hf_hub_download
+
+        from ._internal.accelerator import create_onnx_session
+
+        try:
+            model_path = hf_hub_download(repo_id=repo_id, filename=filename)
+        except Exception as exc:
+            logger.warning("Downloading %s model %s from %s failed: %s", label, filename, repo_id, exc)
+            raise
+        logger.info("Loading %s model: %s", label, model_path)
+        session = create_onnx_session(model_path, prefer_gpu=True)
+        _sessions[name] = session
+        return session
 
 
 def _get_lama_session() -> object:
@@ -248,7 +258,7 @@ def _get_lama_session() -> object:
 
 
 def _session_prefers_batching(session: object) -> bool:
-    """Return True when the active ONNX Runtime session benefits from batching (CUDA)."""
+    """Return True when the active ONNX Runtime session benefits from batching."""
     get_providers = getattr(session, "get_providers", None)
     if not callable(get_providers):
         return False
@@ -256,7 +266,7 @@ def _session_prefers_batching(session: object) -> bool:
         providers = get_providers()
     except Exception:
         return False
-    return "CUDAExecutionProvider" in providers
+    return any(p in _BATCHING_ONNX_PROVIDERS for p in providers)
 
 
 def backend_prefers_batching(backend: Backend) -> bool:

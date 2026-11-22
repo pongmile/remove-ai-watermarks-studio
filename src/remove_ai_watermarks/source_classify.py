@@ -479,10 +479,13 @@ class _V7OnnxHolder:
             if omp_threads.isdigit() and int(omp_threads) > 0:
                 sess_opts.intra_op_num_threads = int(omp_threads)
                 sess_opts.inter_op_num_threads = 1
-            self._session = ort.InferenceSession(
+            from remove_ai_watermarks._internal.accelerator import create_onnx_session
+
+            self._session = create_onnx_session(
                 raw_bytes,
                 sess_options=sess_opts,
-                providers=["CPUExecutionProvider"],
+                prefer_gpu=True,
+                ort_module=ort,
             )
             return self._session
 

@@ -1,0 +1,55 @@
+Remove AI Watermarks Studio
+Copyright 2026 Remove AI Watermarks Studio Contributors
+
+This product is a derivative work (fork) of remove-ai-watermarks:
+  Original Project : https://github.com/wiltodelta/remove-ai-watermarks
+  Original Author  : Victor Kuznetsov (wiltodelta) — https://wiltodelta.com/
+  Copyright        : Copyright 2025-2026 wiltodelta
+  License          : Apache License, Version 2.0 (see LICENSE)
+
+================================================================================
+Summary of Modifications in This Fork
+================================================================================
+- Added a local offline Web Studio UI (webapp/) built with modern web platform
+  standards (native <dialog>, Popover API, CSS @layer / light-dark() /
+  @container / :has(), View Transitions, bilingual English / Thai UI).
+- Added universal GPU/NPU/CPU hardware acceleration support across NVIDIA CUDA
+  (RTX & GTX), AMD Radeon (ROCm & DirectML), Intel Arc (XPU & OpenVINO), Apple
+  Silicon (MPS & CoreML), AI NPUs (OpenVINO / DirectML / QNN), and CPU fallback.
+- Added cross-platform installers (install.ps1, install.sh), portable launchers
+  (Start Studio.cmd, run_webapp.ps1, run_webapp.sh, make_shortcut.ps1), and
+  1-click GitHub & upstream updaters (update.ps1, update.sh, Update Studio.cmd,
+  plus in-app update endpoints).
+
+All original Apache-2.0 copyright notices, license terms, and attribution from
+wiltodelta/remove-ai-watermarks are retained intact.
+
+================================================================================
+Third-Party Models (Downloaded On Demand — Not Bundled in Source)
+================================================================================
+Model weights are downloaded directly from Hugging Face on user request and
+remain subject to their respective upstream licenses:
+
+- Qwen-Image-2512 (Alibaba Qwen) — Apache-2.0
+- Qwen-Image-2.1 (Alibaba Qwen) — Qwen Research License
+  (Non-commercial research, evaluation, and personal use only)
+- SDXL 1.0 (Stability AI) — CreativeML Open RAIL++-M
+- SDXL-Lightning (ByteDance) — CreativeML Open RAIL++-M
+- Z-Image-Turbo (Tongyi-MAI) — Apache-2.0
+- Chroma1-HD (Lodestones) — Apache-2.0
+- Texture-Fix VAE & SDXL fp16 VAE (MadeByOllin) — MIT / Apache-2.0
+- LaMa-ONNX (Carve) — Apache-2.0
+- MI-GAN (Andranik Sargsyan) — MIT
+- Segment Anything / SAM (Meta Platforms) — Apache-2.0
+- YuNet Face Detector (OpenCV Zoo) — MIT
+- raiw-source-classify (Victor Kuznetsov / wiltodelta) — Apache-2.0
+
+================================================================================
+Core Frameworks & Engineering Guidance
+================================================================================
+- PyTorch (Linux Foundation / Meta) — BSD-3-Clause
+- HuggingFace Diffusers & Transformers — Apache-2.0
+- DiffSynth-Studio (ModelScope) — Apache-2.0
+- ONNX Runtime (Microsoft) — MIT
+- FastAPI & Uvicorn — MIT / BSD-3-Clause
+- Google Chrome modern-web-guidance — Apache-2.0

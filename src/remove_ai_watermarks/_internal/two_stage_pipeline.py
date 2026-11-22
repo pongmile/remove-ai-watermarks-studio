@@ -27,6 +27,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 import numpy as np
 from PIL import Image
 
+from remove_ai_watermarks._internal.accelerator import (
+    device_vram_gib,
+    infer_device_kind,
+    is_diffsynth_supported,
+    resolve_dtype,
+)
 from remove_ai_watermarks._internal.utils import model_cache_dir
 from remove_ai_watermarks._internal.watermark_profiles import resolve_seed
 
@@ -662,7 +668,7 @@ class TwoStageZImagePipeline:
     # base, so a directly constructed subclass reports itself.
     profile_name: ClassVar[str] = ""
 
-    device: str
+    device: Any
     torch_dtype: Any
     hf_token: str | None = None
     progress_callback: Callable[[str], None] | None = None
@@ -681,20 +687,25 @@ class TwoStageZImagePipeline:
             with contextlib.suppress(Exception):
                 self.progress_callback(message)
 
-    def _require_cuda(self) -> None:
-        if self.device != "cuda":
+    def _device_kind(self) -> str:
+        return infer_device_kind(self.device)
+
+    def _require_diffsynth_device(self) -> None:
+        kind = self._device_kind()
+        if not is_diffsynth_supported(kind):
             name = self.profile_name or type(self).__name__
             raise RuntimeError(
-                f"The {name} pipeline is CUDA-only; there is no CPU or MPS path "
-                "for it. WatermarkRemover already refuses a non-CUDA device, so "
-                "reaching this guard means the pipeline was constructed directly."
+                f"The {name} DiffSynth stage requires CUDA, ROCm, or Intel XPU; '{kind}' is not supported. "
+                "Use the 'sdxl-zimage' or 'chroma-zimage' profile on DirectML, Apple MPS, or CPU."
             )
 
-    def _vram_limit(self) -> float | None:
-        import torch
+    def _require_cuda(self) -> None:
+        self._require_diffsynth_device()
 
-        with contextlib.suppress(Exception):
-            return max(1.0, torch.cuda.mem_get_info("cuda")[1] / (1024**3) - 0.5)
+    def _vram_limit(self) -> float | None:
+        total = self._total_vram_gib()
+        if total > 0.0:
+            return max(1.0, total - 0.5)
         return None
 
     def _total_vram_gib(self) -> float:
@@ -704,11 +715,7 @@ class TwoStageZImagePipeline:
         handed to DiffSynth) and must stay ``None`` rather than 0.0 when unknown, so
         an unreadable device means "no limit" there and "assume small" here.
         """
-        import torch
-
-        with contextlib.suppress(Exception):
-            return torch.cuda.get_device_properties("cuda").total_memory / (1024**3)
-        return 0.0
+        return device_vram_gib(self._device_kind())
 
     def _keep_face_models_resident(self) -> bool:
         return resolve_face_model_residency(
@@ -737,25 +744,29 @@ class TwoStageZImagePipeline:
         """
         return cls._zimage_vram_config()["computation_dtype"]
 
+    def _face_stage_dtype_for_device(self) -> Any:
+        return resolve_dtype(self._device_kind(), "qwen-zimage")
+
     @staticmethod
-    def _zimage_vram_config() -> DiffSynthVramConfig:
+    def _zimage_vram_config(device: str = "cuda", dtype: Any = None) -> DiffSynthVramConfig:
         import torch
 
+        compute_dtype = dtype if dtype is not None else torch.bfloat16
         return {
-            "offload_dtype": torch.bfloat16,
+            "offload_dtype": compute_dtype,
             "offload_device": "cpu",
-            "onload_dtype": torch.bfloat16,
+            "onload_dtype": compute_dtype,
             "onload_device": "cpu",
-            "preparing_dtype": torch.bfloat16,
-            "preparing_device": "cuda",
-            "computation_dtype": torch.bfloat16,
-            "computation_device": "cuda",
+            "preparing_dtype": compute_dtype,
+            "preparing_device": device,
+            "computation_dtype": compute_dtype,
+            "computation_device": device,
         }
 
     def _load_zimage(self) -> Any:
         if self._zimage_pipe is not None:
             return self._zimage_pipe
-        self._require_cuda()
+        self._require_diffsynth_device()
         os.environ.setdefault("DIFFSYNTH_DOWNLOAD_SOURCE", "huggingface")
         if self.hf_token:
             os.environ.setdefault("HF_TOKEN", self.hf_token)
@@ -769,7 +780,9 @@ class TwoStageZImagePipeline:
 
         self._progress("Loading Z-Image Turbo face-detail model...")
         keep_on_device = self._keep_face_models_resident()
-        config = self._zimage_vram_config()
+        face_dtype = self._face_stage_dtype_for_device()
+        compute_device = str(self.device)
+        config = self._zimage_vram_config(device=compute_device, dtype=face_dtype)
         text_encoder_config = ModelConfig(
             model_id=ZIMAGE_TURBO_MODEL_ID,
             origin_file_pattern="text_encoder/*.safetensors",
@@ -793,7 +806,7 @@ class TwoStageZImagePipeline:
             model_configs.remove(text_encoder_config)
             log.info("Z-Image prompt embedding is cached; loading the stack without its text encoder")
         pipe = ZImagePipeline.from_pretrained(
-            torch_dtype=self._face_stage_dtype(),
+            torch_dtype=face_dtype,
             device=self.device,
             model_configs=model_configs,
             tokenizer_config=ModelConfig(
@@ -828,7 +841,7 @@ class TwoStageZImagePipeline:
         processor = AutoProcessor.from_pretrained(SAM_MODEL_ID, **kwargs)
         model = AutoModelForMaskGeneration.from_pretrained(
             SAM_MODEL_ID,
-            torch_dtype=self._face_stage_dtype(),
+            torch_dtype=self._face_stage_dtype_for_device(),
             **kwargs,
         ).to(self.device)
         model.train(False)
@@ -857,7 +870,7 @@ class TwoStageZImagePipeline:
             )
             original_sizes = inputs["original_sizes"].clone()
             reshaped_sizes = inputs["reshaped_input_sizes"].clone()
-            inputs = _prepare_sam_inputs(inputs, self.device, self._face_stage_dtype())
+            inputs = _prepare_sam_inputs(inputs, self.device, self._face_stage_dtype_for_device())
             with torch.inference_mode():
                 outputs = model(**inputs, multimask_output=True)
             processed = processor.post_process_masks(
@@ -887,8 +900,14 @@ class TwoStageZImagePipeline:
         self._load_global()
         _yunet_model_path()
         if not global_only:
-            self._load_zimage()
-            self._load_sam()
+            if is_diffsynth_supported(self._device_kind()):
+                self._load_zimage()
+                self._load_sam()
+            else:
+                log.info(
+                    "Skipping Z-Image face-stage preload on '%s' (DiffSynth requires CUDA, ROCm, or Intel XPU).",
+                    self._device_kind(),
+                )
 
     def _load_global(self) -> Any:
         """Load and cache the profile's global model stack."""
@@ -998,7 +1017,6 @@ class TwoStageZImagePipeline:
         """Execute global regeneration and masked face repair."""
         if text_manifest is not None and tile:
             raise ValueError("Verified text restoration is not calibrated with tiled diffusion")
-        self._require_cuda()
         context = self._prepare_regeneration(image, tile=tile, text_manifest=text_manifest)
         seed = resolve_seed(seed)
         donor = None
@@ -1025,6 +1043,15 @@ class TwoStageZImagePipeline:
         boxes = detect_faces(image)
         if not boxes:
             self._progress("No faces detected; keeping the global result.")
+            result = global_result
+        elif not is_diffsynth_supported(self._device_kind()):
+            log.warning(
+                "Skipping Z-Image face-detail stage on '%s' "
+                "(DiffSynth VRAM manager requires CUDA, ROCm, or Intel XPU); "
+                "keeping global regeneration result.",
+                self._device_kind(),
+            )
+            self._progress(f"Skipping Z-Image face stage on {self._device_kind()}; keeping global result.")
             result = global_result
         else:
             masks = self._sam_masks(image, boxes)

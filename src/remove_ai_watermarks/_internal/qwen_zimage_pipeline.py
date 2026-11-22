@@ -119,12 +119,16 @@ class QwenZImagePipeline(TwoStageZImagePipeline):
         )
 
     def _qwen_vram_config(self) -> DiffSynthVramConfig:
-        return _build_qwen_vram_config(keep_resident=self._keep_global_models_resident())
+        return _build_qwen_vram_config(
+            keep_resident=self._keep_global_models_resident(),
+            device=str(self.device),
+            computation_dtype=self.torch_dtype,
+        )
 
     def _load_global(self) -> Any:
         if self._qwen_pipe is not None:
             return self._qwen_pipe
-        self._require_cuda()
+        self._require_diffsynth_device()
         os.environ.setdefault("DIFFSYNTH_DOWNLOAD_SOURCE", "huggingface")
         if self.hf_token:
             os.environ.setdefault("HF_TOKEN", self.hf_token)
@@ -229,24 +233,30 @@ class QwenZImagePipeline(TwoStageZImagePipeline):
         )
 
 
-def _build_qwen_vram_config(*, keep_resident: bool) -> DiffSynthVramConfig:
-    """Build the DiffSynth fp8/bf16 placement map for a Qwen global stack."""
+def _build_qwen_vram_config(
+    *,
+    keep_resident: bool,
+    device: str = "cuda",
+    computation_dtype: Any = None,
+) -> DiffSynthVramConfig:
+    """Build the DiffSynth fp8/bf16(or fp16) placement map for a Qwen global stack."""
     import torch
 
+    compute_dtype = computation_dtype if computation_dtype is not None else torch.bfloat16
     if keep_resident:
         # DiffSynth decides disk_offload once from offload_dtype=="disk" or
         # onload_dtype=="disk"; keeping "disk" out of every slot is what makes
-        # the global stack stay resident in CUDA fp8 instead of streaming from
+        # the global stack stay resident in GPU fp8 instead of streaming from
         # safetensors on every step.
         return {
             "offload_dtype": torch.float8_e4m3fn,
-            "offload_device": "cuda",
+            "offload_device": device,
             "onload_dtype": torch.float8_e4m3fn,
-            "onload_device": "cuda",
+            "onload_device": device,
             "preparing_dtype": torch.float8_e4m3fn,
-            "preparing_device": "cuda",
-            "computation_dtype": torch.bfloat16,
-            "computation_device": "cuda",
+            "preparing_device": device,
+            "computation_dtype": compute_dtype,
+            "computation_device": device,
         }
     return {
         "offload_dtype": "disk",
@@ -254,9 +264,9 @@ def _build_qwen_vram_config(*, keep_resident: bool) -> DiffSynthVramConfig:
         "onload_dtype": torch.float8_e4m3fn,
         "onload_device": "cpu",
         "preparing_dtype": torch.float8_e4m3fn,
-        "preparing_device": "cuda",
-        "computation_dtype": torch.bfloat16,
-        "computation_device": "cuda",
+        "preparing_device": device,
+        "computation_dtype": compute_dtype,
+        "computation_device": device,
     }
 
 
@@ -284,8 +294,13 @@ def _qwen_vae_roundtrip(
     return pipe.vae_output_to_image(decoded).crop((0, 0, source_width, source_height)).convert("RGB")
 
 
-def _build_qwen21_vram_config(*, keep_resident: bool) -> DiffSynthVramConfig:
-    """Build the DiffSynth bf16 placement map for the 7B Qwen-Image-2.1 stack.
+def _build_qwen21_vram_config(
+    *,
+    keep_resident: bool,
+    device: str = "cuda",
+    computation_dtype: Any = None,
+) -> DiffSynthVramConfig:
+    """Build the DiffSynth bf16(or fp16) placement map for the 7B Qwen-Image-2.1 stack.
 
     Unlike 20B Qwen-Image-2512, the 7B Qwen-Image-2.1 stack fits in bf16 (17.6 GiB
     without its text encoder), and ``madebyollin/texture-fix-vae-for-qwen-image-2.1``
@@ -294,16 +309,17 @@ def _build_qwen21_vram_config(*, keep_resident: bool) -> DiffSynthVramConfig:
     """
     import torch
 
-    offload_device = "cuda" if keep_resident else "cpu"
+    compute_dtype = computation_dtype if computation_dtype is not None else torch.bfloat16
+    offload_device = device if keep_resident else "cpu"
     return {
-        "offload_dtype": torch.bfloat16,
+        "offload_dtype": compute_dtype,
         "offload_device": offload_device,
-        "onload_dtype": torch.bfloat16,
+        "onload_dtype": compute_dtype,
         "onload_device": offload_device,
-        "preparing_dtype": torch.bfloat16,
-        "preparing_device": "cuda",
-        "computation_dtype": torch.bfloat16,
-        "computation_device": "cuda",
+        "preparing_dtype": compute_dtype,
+        "preparing_device": device,
+        "computation_dtype": compute_dtype,
+        "computation_device": device,
     }
 
 
@@ -327,12 +343,16 @@ class Qwen21ZImagePipeline(TwoStageZImagePipeline):
             self.keep_global_models_on_device,
             total_memory_gib=self._total_vram_gib(),
         )
-        return _build_qwen21_vram_config(keep_resident=keep_resident)
+        return _build_qwen21_vram_config(
+            keep_resident=keep_resident,
+            device=str(self.device),
+            computation_dtype=self.torch_dtype,
+        )
 
     def _load_global(self) -> Any:
         if self._qwen21_pipe is not None:
             return self._qwen21_pipe
-        self._require_cuda()
+        self._require_diffsynth_device()
         os.environ.setdefault("DIFFSYNTH_DOWNLOAD_SOURCE", "huggingface")
         if self.hf_token:
             os.environ.setdefault("HF_TOKEN", self.hf_token)

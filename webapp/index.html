@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#f4f6fb" id="themeColorMeta" />
+<meta name="text-scale" content="scale" />
+<script>
+  try {
+    var saved = localStorage.getItem('color-scheme') || localStorage.getItem('theme');
+    var meta = document.querySelector('meta[name="color-scheme"]');
+    if (saved === 'light' || saved === 'dark') {
+      if (meta) meta.content = saved;
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+    var isDark = saved === 'dark' || (saved !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var tc = document.getElementById('themeColorMeta');
+    if (tc) tc.content = isDark ? '#0b0f17' : '#f4f6fb';
+  } catch (e) {}
+</script>
+<title>Remove AI Watermarks Studio</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+<div class="wrap">
+  <!-- Header -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg class="ico ico-brand" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/></svg>
+      </div>
+      <div class="brand-title">
+        <h1 data-i18n="appTitle">Remove AI Watermarks Studio</h1>
+        <span id="verPill" class="ver">…</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="gpuPill" class="gpu-pill" type="button" title="Click to open Models &amp; Updates">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="gpuPillText">Checking…</span>
+        <span id="onnxPillBadge" class="onnx-chip" hidden></span>
+      </button>
+      <button id="modelsToggleBtn" class="ghost sm" type="button" aria-controls="modelDrawer" aria-expanded="false">
+        <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+        <span id="modelsBtnLabel" data-i18n="models">Models</span>
+      </button>
+      <button id="langBtn" class="ghost sm" type="button" title="Switch language (EN / ไทย)">EN / ไทย</button>
+      <button id="themeBtn" class="ghost sm" type="button" title="Switch theme">
+        <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        <span id="themeLabel">Auto</span>
+      </button>
+      <button id="kbdBtn" class="ghost sm icon-only" type="button" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="tabs" role="tablist" aria-label="Main workspaces">
+    <button class="tab active" data-tab="image" role="tab" aria-selected="true" aria-controls="tab-image" type="button">
+      <svg class="ico" aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+      <span data-i18n="tabImage">Image</span>
+    </button>
+    <button class="tab" data-tab="erase" role="tab" aria-selected="false" aria-controls="tab-erase" type="button">
+      <svg class="ico" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+      <span data-i18n="tabErase">Manual Erase</span>
+    </button>
+    <button class="tab" data-tab="inspect" role="tab" aria-selected="false" aria-controls="tab-inspect" type="button">
+      <svg class="ico" aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <span data-i18n="tabInspect">Inspect</span>
+    </button>
+    <button class="tab" data-tab="video" role="tab" aria-selected="false" aria-controls="tab-video" type="button">
+      <svg class="ico" aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>
+      <span data-i18n="tabVideo">Video</span>
+    </button>
+  </nav>
+
+  <main>
+    <!-- ==================== TAB 1: IMAGE CLEAN ==================== -->
+    <section id="tab-image" class="panel active" role="tabpanel" tabindex="-1">
+      <div class="modes-wrap">
+        <div class="modes" id="imgModes">
+          <button class="mode active" data-mode="quick" type="button">
+            <div class="mode-top">
+              <span class="mode-title">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                <span data-i18n="modeQuick">Quick Clean</span>
+              </span>
+              <span class="badge ok" data-i18n="badgeFast">~1s · Neural</span>
+            </div>
+            <p data-i18n="modeQuickDesc">Auto-erases 15+ visible AI marks and strips AI metadata.</p>
+          </button>
+          <button class="mode" data-mode="deep" type="button">
+            <div class="mode-top">
+              <span class="mode-title">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
+                <span data-i18n="modeDeep">Deep Clean</span>
+              </span>
+              <span id="deepModeBadge" class="badge accent">GPU Diffusion</span>
+            </div>
+            <p data-i18n="modeDeepDesc">Removes visible + hidden SynthID / InvisMark watermarks via GPU diffusion.</p>
+          </button>
+          <button class="mode" data-mode="metadata" type="button">
+            <div class="mode-top">
+              <span class="mode-title">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>
+                <span data-i18n="modeMeta">Metadata Only</span>
+              </span>
+              <span class="badge" data-i18n="badgeLossless">Instant · Lossless</span>
+            </div>
+            <p data-i18n="modeMetaDesc">Strips C2PA, EXIF, XMP, TC260 &amp; ComfyUI tags without touching pixels.</p>
+          </button>
+        </div>
+      </div>
+
+      <!-- Compact Deep Clean Strip (shown only in Deep mode) -->
+      <div class="card deep-strip" id="deepStrip" hidden>
+        <div class="deep-strip-row">
+          <div class="field field-grow">
+            <label for="deepProfSel" data-i18n="diffModel">Diffusion Model</label>
+            <select id="deepProfSel" class="select-grow"></select>
+          </div>
+          <label class="chk" title="Run diffusion scrub even if metadata was already stripped">
+            <input type="checkbox" id="forceChk" checked />
+            <span data-i18n="alwaysScrub">Always scrub hidden marks</span>
+          </label>
+        </div>
+        <div class="deep-strip-row deep-hint-row" id="deepProfHint">
+          <span id="deepProfHintText"></span>
+          <button id="openModelsFromHint" class="ghost xs" type="button" data-i18n="manageModels">Manage Models</button>
+        </div>
+        <details id="advDetails" class="studio-details">
+          <summary id="advSummary" class="studio-summary">
+            <span data-i18n="advancedOptions">Advanced Options</span>
+          </summary>
+          <div id="advBox" class="adv-box">
+            <div class="field">
+              <label for="deviceSel" data-i18n="computeDevice">Compute Device</label>
+              <select id="deviceSel">
+                <option value="auto" data-i18n="devAuto">Auto (Best available)</option>
+                <option value="cuda" data-i18n="devCuda">NVIDIA CUDA</option>
+                <option value="rocm" data-i18n="devRocm">AMD ROCm</option>
+                <option value="xpu" data-i18n="devXpu">Intel Arc (XPU)</option>
+                <option value="dml" data-i18n="devDml">DirectML (AMD / Intel)</option>
+                <option value="mps" data-i18n="devMps">Apple MPS</option>
+                <option value="cpu" data-i18n="devCpu">CPU</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="tileSel" data-i18n="tileLabel">Tile</label>
+              <select id="tileSel">
+                <option value="auto" data-i18n="tileAuto">Auto (&gt;1536px)</option>
+                <option value="true" data-i18n="tileOn">Always On</option>
+                <option value="false" data-i18n="tileOff">Off</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="vendorSel" data-i18n="sourceHint">Source Hint</label>
+              <select id="vendorSel">
+                <option value="" data-i18n="vendorAuto">Auto-detect</option>
+                <option value="google">Google / Gemini (SynthID)</option>
+                <option value="openai">OpenAI / ChatGPT</option>
+                <option value="microsoft">Microsoft (InvisMark)</option>
+                <option value="meta">Meta (Content Seal)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="polishSel" data-i18n="polishLabel">Polish</label>
+              <select id="polishSel">
+                <option value="auto" data-i18n="profileDefault">Profile default</option>
+                <option value="true" data-i18n="forceOn">Force On</option>
+                <option value="false" data-i18n="forceOff">Force Off</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="grainInp" data-i18n="grainLabel">Grain</label>
+              <input id="grainInp" type="number" min="0" max="0.5" step="0.05" value="0" class="num-sm" />
+            </div>
+            <div class="field">
+              <label for="sharpInp" data-i18n="sharpenLabel">Sharpen</label>
+              <input id="sharpInp" type="number" min="0" max="1.0" step="0.1" value="0" class="num-sm" />
+            </div>
+            <label class="chk" title="Offload diffusion weights to CPU between steps to save VRAM">
+              <input type="checkbox" id="offloadChk" />
+              <span data-i18n="cpuOffload">CPU Offload</span>
+            </label>
+          </div>
+        </details>
+      </div>
+
+      <!-- Hero Dropzone + Footer Bar -->
+      <div class="drop-shell">
+        <div id="drop" class="drop" tabindex="0" role="button" aria-label="Drop or select images">
+          <div class="drop-ico" aria-hidden="true">
+            <svg class="ico ico-lg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+          </div>
+          <strong data-i18n="dropHeroTitle">Drop anywhere, click, or Ctrl+V paste</strong>
+          <small data-i18n="dropHeroSub">PNG, JPEG, WebP, HEIC/AVIF, TIFF, BMP — 100% local, batch supported</small>
+          <input id="file" type="file" accept="image/*,.heic,.heif,.avif,.jfif,.tif,.tiff" multiple hidden />
+        </div>
+        <div class="drop-footer">
+          <label class="chk">
+            <input type="checkbox" id="autoCleanChk" checked />
+            <span data-i18n="autoCleanDrop">Auto-clean on drop</span>
+          </label>
+          <button id="imgOptToggleBtn" class="ghost xs opt-pill" type="button" aria-expanded="false" aria-controls="imgOptPanel">
+            <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span id="imgOptSummary">Options: Auto (Best) · Smart Auto</span>
+            <span id="imgOptCaret" aria-hidden="true">▾</span>
+          </button>
+        </div>
+        <div id="imgOptPanel" class="opt-panel" hidden>
+          <div class="field" id="backendField">
+            <label for="backendSel" data-i18n="fillModel">Quality / Fill Model</label>
+            <select id="backendSel">
+              <option value="auto" data-i18n="beAuto">Auto (Best)</option>
+              <option value="lama">big-LaMa · Best textures (208 MB)</option>
+              <option value="migan">MI-GAN · Ultra-fast (28 MB)</option>
+              <option value="cv2">OpenCV · Instant classic</option>
+            </select>
+          </div>
+          <div class="field" id="sensField">
+            <label for="sensSel" data-i18n="detection">Detection</label>
+            <select id="sensSel">
+              <option value="auto" data-i18n="sensAuto">Smart Auto</option>
+              <option value="strict" data-i18n="sensStrict">Strict (low false-positive)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Overall batch progress -->
+      <div class="overall" id="overall" hidden>
+        <div class="lbl"><span id="overallLbl">0 / 0</span><span id="overallPct">0%</span></div>
+        <div class="bar"><i id="overallBar"></i></div>
+      </div>
+
+      <!-- Queue list -->
+      <div class="list" id="list"></div>
+
+      <!-- Smart Action Toolbar (hidden when queue is empty) -->
+      <div class="action-row" id="imgActionRow" hidden>
+        <button id="go" type="button">
+          <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>
+          <span id="goLabel" data-i18n="cleanBtn">Clean</span>
+        </button>
+        <button id="stopBtn" class="danger-solid" type="button" hidden>
+          <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><rect width="12" height="12" x="6" y="6" rx="2"/></svg>
+          <span data-i18n="stopBtn">Stop</span>
+        </button>
+        <button id="recleanModeBtn" class="ghost" type="button" hidden>
+          <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <span id="recleanModeLabel">Re-clean</span>
+        </button>
+        <button id="zipAllBtn" class="ghost" type="button" hidden>
+          <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          <span data-i18n="downloadZip">Download All (.zip)</span>
+        </button>
+        <button id="clear" class="ghost" type="button" data-i18n="clearBtn">Clear</button>
+        <label class="chk push-end" title="Automatically downloads when cleaning a single image (batches use Download All .zip)">
+          <input type="checkbox" id="autoDlChk" checked />
+          <span data-i18n="autoDownload">Auto-download</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: MANUAL ERASE ==================== -->
+    <section id="tab-erase" class="panel" role="tabpanel" tabindex="-1">
+      <div class="card">
+        <div class="erase-toolbar">
+          <div class="seg" role="group" aria-label="Erase tool">
+            <button id="toolBoxBtn" class="active" type="button" title="Box tool (R)">
+              <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/></svg>
+              <span data-i18n="toolBox">Box</span>
+            </button>
+            <button id="toolBrushBtn" type="button" title="Brush tool (B)">
+              <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
+              <span data-i18n="toolBrush">Brush</span>
+            </button>
+          </div>
+          <div class="field" id="brushSizeField" hidden>
+            <label for="brushSize" data-i18n="brushSize">Size</label>
+            <input id="brushSize" type="range" min="6" max="120" value="28" class="brush-range" />
+            <span id="brushSizeVal" class="brush-size-val">28 px</span>
+          </div>
+          <button id="eraseAutoDetectBtn" class="ghost sm" type="button" disabled title="Auto-detect watermarks and place editable boxes">
+            <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>
+            <span data-i18n="autoDetectMarks">Auto-Detect Marks</span>
+          </button>
+          <button id="eraseUndoBtn" class="ghost sm" type="button" disabled title="Undo (Ctrl+Z)">
+            <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+            <span data-i18n="undoBtn">Undo</span>
+          </button>
+          <button id="eraseClearBtn" class="ghost sm" type="button" disabled data-i18n="clearMaskBtn">Clear Mask</button>
+          <div class="field push-end">
+            <label for="eraseBackend" data-i18n="modelShort">Model</label>
+            <select id="eraseBackend">
+              <option value="lama">big-LaMa (Best)</option>
+              <option value="migan">MI-GAN (Fast · 28 MB)</option>
+              <option value="cv2">OpenCV</option>
+            </select>
+          </div>
+          <label class="chk">
+            <input type="checkbox" id="eraseMetaChk" checked />
+            <span data-i18n="stripMeta">Strip metadata</span>
+          </label>
+          <button id="eraseRunBtn" type="button" disabled title="Erase selection (Enter)">
+            <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>
+            <span data-i18n="eraseRunBtn">Erase</span>
+          </button>
+        </div>
+
+        <div id="eraseDrop" class="drop standalone" tabindex="0" role="button" aria-label="Drop or select image to erase">
+          <div class="drop-ico" aria-hidden="true">
+            <svg class="ico ico-lg" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+          </div>
+          <strong data-i18n="eraseDropTitle">Drop an image, click, or Ctrl+V paste to erase manually</strong>
+          <small data-i18n="eraseDropSub">Draw boxes (R), paint with brush (B), resize ([ / ]), or click Auto-Detect Marks</small>
+          <input id="eraseFile" type="file" accept="image/*,.heic,.heif,.avif,.jfif,.tif,.tiff" hidden />
+        </div>
+
+        <div id="eraseWorkspace" hidden>
+          <div class="erase-subbar">
+            <span id="eraseFileInfo" class="note flush"></span>
+            <div class="inline-row">
+              <div class="seg" id="eraseViewSwitch" hidden>
+                <button id="eraseViewEditBtn" class="active" type="button" data-i18n="viewEditMask">Edit Mask</button>
+                <button id="eraseViewResBtn" type="button" data-i18n="viewResult">Result Preview</button>
+              </div>
+              <button id="erasePickOther" class="ghost xs" type="button" data-i18n="chooseAnother">Choose another</button>
+            </div>
+          </div>
+
+          <!-- Edit Mask Canvas Stage -->
+          <div class="canvas-stage" id="eraseStage">
+            <div class="canvas-viewport" id="eraseViewport">
+              <div class="canvas-wrap">
+                <img id="eraseImg" alt="" />
+                <canvas id="eraseCanvas"></canvas>
+              </div>
+            </div>
+            <div class="zoom-hud" aria-label="Canvas zoom">
+              <button id="eraseZoomOut" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+              <button id="eraseZoomReset" type="button" title="Reset zoom (Fit)"><span id="eraseZoomPct">100%</span></button>
+              <button id="eraseZoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+              <button id="eraseZoomFit" type="button" data-i18n="zoomFit">Fit</button>
+            </div>
+          </div>
+
+          <!-- In-Place Result Preview Stage -->
+          <div id="eraseResultBox" class="erase-result-stage" hidden>
+            <div id="eraseCompareMount" class="full-w"></div>
+            <div class="action-row center-row">
+              <button id="eraseDlBtn" type="button">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                <span data-i18n="downloadBtn">Download</span>
+              </button>
+              <button id="eraseCopyBtn" class="ghost" type="button">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                <span data-i18n="copyBtn">Copy</span>
+              </button>
+              <button id="eraseChainBtn" class="ghost" type="button">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/></svg>
+                <span data-i18n="keepErasing">Keep Erasing on Result</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="eraseStatus" class="mnow mt-sm"></div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 3: INSPECT & AI DETECT ==================== -->
+    <section id="tab-inspect" class="panel" role="tabpanel" tabindex="-1">
+      <div id="inspectDrop" class="drop standalone" tabindex="0" role="button" aria-label="Drop or select image or video to inspect">
+        <div class="drop-ico" aria-hidden="true">
+          <svg class="ico ico-lg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </div>
+        <strong data-i18n="inspectDropTitle">Drop an image or video, click, or Ctrl+V paste to inspect</strong>
+        <small data-i18n="inspectDropSub">Checks C2PA, EXIF, TC260, visible watermarks (with overlay) + Source Classify v8</small>
+        <input id="inspectFile" type="file" accept="image/*,video/*,.heic,.heif,.avif,.jfif,.tif,.tiff" hidden />
+      </div>
+      <div id="inspectOut" class="inspect-out" hidden></div>
+    </section>
+
+    <!-- ==================== TAB 4: VIDEO CLEAN ==================== -->
+    <section id="tab-video" class="panel" role="tabpanel" tabindex="-1">
+      <div class="modes-wrap">
+        <div class="modes" id="vidModes">
+          <button class="mode active" data-vmode="quick" type="button">
+            <div class="mode-top">
+              <span class="mode-title">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                <span data-i18n="vidQuick">Visible + Metadata</span>
+              </span>
+              <span class="badge ok">18 Marks</span>
+            </div>
+            <p data-i18n="vidQuickDesc">Auto-removes Sora 2, Veo, Seedance, Kling, Hailuo, Doubao, Vidu, Wan &amp; more.</p>
+          </button>
+          <button class="mode" data-vmode="metadata" type="button">
+            <div class="mode-top">
+              <span class="mode-title">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                <span data-i18n="modeMeta">Metadata Only</span>
+              </span>
+              <span class="badge" data-i18n="badgeLossless">Instant · Lossless</span>
+            </div>
+            <p data-i18n="vidMetaDesc">Strips TC260, C2PA &amp; vendor metadata without re-encoding video or audio.</p>
+          </button>
+          <button class="mode" data-vmode="deep" type="button">
+            <div class="mode-top">
+              <span class="mode-title">
+                <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
+                <span data-i18n="vidDeep">Deep Video Clean</span>
+              </span>
+              <span class="badge warn">GPU Regen</span>
+            </div>
+            <p data-i18n="vidDeepDesc">Visible + metadata + invisible pixel regeneration (SynthID / Seedance / Wan 2.1).</p>
+          </button>
+        </div>
+      </div>
+
+      <div class="drop-shell">
+        <div id="vidDrop" class="drop" tabindex="0" role="button" aria-label="Drop or select videos">
+          <div class="drop-ico" aria-hidden="true">
+            <svg class="ico ico-lg" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m10 8 6 4-6 4V8z"/></svg>
+          </div>
+          <strong data-i18n="vidDropTitle">Drag &amp; drop videos here or click to browse</strong>
+          <small data-i18n="vidDropSub">MP4, MOV, M4V, WebM, MKV, AVI, FLV — bundled FFmpeg ready</small>
+          <input id="vidFile" type="file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.flv" multiple hidden />
+        </div>
+        <div class="drop-footer" id="vidOptFooter">
+          <span class="note flush" id="vidModeNote" data-i18n="vidModeNoteText">18 registered video marks + optical-flow temporal smoothing</span>
+          <button id="vidOptToggleBtn" class="ghost xs opt-pill" type="button" aria-expanded="false" aria-controls="vidOptPanel">
+            <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span id="vidOptSummary">Options: Auto (18 marks) · MI-GAN</span>
+            <span id="vidOptCaret" aria-hidden="true">▾</span>
+          </button>
+        </div>
+        <div id="vidOptPanel" class="opt-panel" hidden>
+          <div class="field" id="vidMarkField">
+            <label for="vidMarkSel" data-i18n="vidMarkLabel">Visible Mark</label>
+            <select id="vidMarkSel">
+              <option value="auto">Auto (scan all 18 marks)</option>
+              <option value="sora">Sora 2</option>
+              <option value="veo">Google Veo</option>
+              <option value="kling">Kling AI</option>
+              <option value="seedance">Seedance</option>
+              <option value="hailuo">Hailuo AI (MiniMax)</option>
+              <option value="doubao">Doubao</option>
+              <option value="dola">Dola AI</option>
+              <option value="vidu">Vidu</option>
+              <option value="wan">Wan</option>
+              <option value="jimeng">Jimeng</option>
+              <option value="jimeng_pill">Jimeng Pill</option>
+              <option value="dreamina">Dreamina</option>
+              <option value="qwen">Qwen</option>
+              <option value="yuanbao">Yuanbao</option>
+              <option value="baidu">Baidu</option>
+              <option value="runninghub">RunningHub</option>
+              <option value="microsoft">Microsoft</option>
+              <option value="generic_ai_label">Generic AI Label (AI生成)</option>
+            </select>
+          </div>
+          <div class="field" id="vidBackendField">
+            <label for="vidBackendSel" data-i18n="fillModel">Fill Model</label>
+            <select id="vidBackendSel">
+              <option value="migan">MI-GAN · Fast neural (28 MB)</option>
+              <option value="auto">Auto (Best neural)</option>
+              <option value="lama">big-LaMa · Best textures (208 MB)</option>
+              <option value="cv2">OpenCV · Fastest</option>
+            </select>
+          </div>
+          <div class="field" id="vidInvField" hidden>
+            <label for="vidInvProf" data-i18n="vidInvLabel">Invisible Profile</label>
+            <select id="vidInvProf">
+              <option value="auto">Auto (Wan 2.1 / SynthID)</option>
+              <option value="synthid">SynthID VAE (certified)</option>
+              <option value="seedance-experimental">Seedance Experimental</option>
+              <option value="wan21-synthid-experimental">Wan 2.1 SynthID (experimental)</option>
+              <option value="wan21-seedance-experimental">Wan 2.1 Seedance (experimental)</option>
+            </select>
+          </div>
+          <label class="chk" id="vidTempField">
+            <input type="checkbox" id="vidTempChk" checked />
+            <span data-i18n="temporalSmooth">Temporal smoothing</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="list" id="vidList"></div>
+
+      <div class="action-row" id="vidActionRow" hidden>
+        <button id="vidGo" type="button">
+          <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span data-i18n="cleanVideosBtn">Clean Videos</span>
+        </button>
+        <button id="vidStopBtn" class="danger-solid" type="button" hidden>
+          <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><rect width="12" height="12" x="6" y="6" rx="2"/></svg>
+          <span data-i18n="stopBtn">Stop</span>
+        </button>
+        <button id="vidZipAllBtn" class="ghost" type="button" hidden>
+          <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          <span data-i18n="downloadZip">Download All (.zip)</span>
+        </button>
+        <button id="vidClear" class="ghost" type="button" data-i18n="clearBtn">Clear</button>
+        <label class="chk push-end">
+          <input type="checkbox" id="vidAutoDlChk" checked />
+          <span data-i18n="autoDownload">Auto-download</span>
+        </label>
+      </div>
+    </section>
+  </main>
+
+  <!-- Subtle Studio Attribution Footer -->
+  <footer class="studio-footer">
+    <span>Remove AI Watermarks Studio</span>
+    <span aria-hidden="true">·</span>
+    <span><span data-i18n="footerForkOf">Fork of</span> <a href="https://github.com/wiltodelta/remove-ai-watermarks" target="_blank" rel="noopener">wiltodelta/remove-ai-watermarks</a></span>
+    <span aria-hidden="true">·</span>
+    <span>Apache-2.0</span>
+  </footer>
+</div>
+
+<!-- Native Top-Layer Popover Slide-Over Drawer: Models, Hardware & GitHub Updates -->
+<aside id="modelDrawer" class="drawer-panel" popover="auto" aria-labelledby="modelsDrawerHeading">
+  <div class="drawer-head">
+    <h2 id="modelsDrawerHeading">
+      <svg class="ico" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+      <span data-i18n="modelsDrawerTitle">Models &amp; Updates</span>
+    </h2>
+    <div class="inline-row">
+      <button id="recheckBtn" class="ghost xs" type="button" data-i18n="recheckBtn">Re-check</button>
+      <button id="closeDrawerBtn" class="ghost xs icon-only" type="button" popovertarget="modelDrawer" popovertargetaction="hide" aria-label="Close" autofocus>✕</button>
+    </div>
+  </div>
+  <div class="drawer-body">
+    <!-- Stale duplicate cache alert (shown prominently at top when present) -->
+    <div id="staleBox" class="stale-box" hidden></div>
+
+    <!-- Hardware Summary Card -->
+    <div class="m-sec" id="hwSec">
+      <div class="m-sec-head">
+        <h3 data-i18n="hwTitle">Hardware &amp; Acceleration</h3>
+        <span id="hwOnnxBadge" class="badge">ONNX</span>
+      </div>
+      <div id="hwSummaryBox" class="hw-card">
+        <div class="note flush">Detecting GPU / NPU / CPU…</div>
+      </div>
+    </div>
+
+    <!-- GitHub Updates Card -->
+    <div class="m-sec" id="updateSec">
+      <div class="m-sec-head">
+        <h3 data-i18n="updatesTitle">GitHub Updates</h3>
+        <span id="updateStatusBadge" class="badge">…</span>
+      </div>
+      <div class="update-card">
+        <div id="updateMetaRow" class="update-meta"></div>
+        <div class="opt-grid">
+          <div class="field">
+            <label for="updateSourceSel" data-i18n="updateSource">Source</label>
+            <select id="updateSourceSel">
+              <option value="auto" data-i18n="updateSrcAuto">Auto</option>
+              <option value="origin" data-i18n="updateSrcOrigin">Origin (Fork)</option>
+              <option value="upstream" data-i18n="updateSrcUpstream">Upstream (wiltodelta)</option>
+            </select>
+          </div>
+          <button id="checkUpdateBtn" class="ghost sm" type="button" data-i18n="checkUpdatesBtn">Check Updates</button>
+          <button id="applyUpdateBtn" class="sm" type="button" data-i18n="applyUpdateBtn">Update from GitHub</button>
+        </div>
+        <div id="updateMsg" class="mnow"></div>
+        <ul id="updateCommitsList" class="update-commits" hidden></ul>
+      </div>
+    </div>
+
+    <!-- Tier 1: Fast Core Pack -->
+    <div class="m-sec">
+      <div class="m-sec-head">
+        <h3 data-i18n="tier1Title">Fast Core Pack · ~295 MB (ONNX)</h3>
+        <button id="dlLightBtn" class="ghost xs" type="button" data-i18n="downloadCorePack">Download Core Pack</button>
+      </div>
+      <div id="lightList" class="mlist"></div>
+    </div>
+
+    <!-- Tier 2: Deep Clean GPU Models -->
+    <div class="m-sec">
+      <div class="m-sec-head">
+        <h3 data-i18n="tier2Title">Deep Clean GPU Models</h3>
+        <span id="modelState" class="badge">…</span>
+      </div>
+      <div id="profileCards" class="profile-cards"></div>
+      <div class="bar"><i id="modelBar"></i></div>
+      <div class="opt-grid">
+        <button id="dlBtn" class="sm" type="button" data-i18n="downloadProfile">Download Profile</button>
+        <button id="pauseBtn" class="ghost sm" type="button" disabled data-i18n="pauseBtn">Pause</button>
+        <button id="setDefaultProfBtn" class="ghost sm" type="button" data-i18n="setDefaultBtn">Set Default ★</button>
+      </div>
+      <label class="chk">
+        <input type="checkbox" id="faceChk" checked />
+        <span data-i18n="includeFace">Include face-repair weights (Z-Image + SAM)</span>
+      </label>
+      <div id="dlNow" class="mnow"></div>
+      <div id="modelList" class="mlist"></div>
+    </div>
+
+    <!-- Storage Paths -->
+    <div class="m-sec">
+      <div class="m-sec-head">
+        <h3 data-i18n="storageTitle">Storage Folders</h3>
+      </div>
+      <div class="opt-grid">
+        <div class="field field-grow">
+          <label for="folderInp">DiffSynth</label>
+          <input id="folderInp" type="text" spellcheck="false" class="mono-input" />
+          <button id="folderBtn" class="ghost sm" type="button" data-i18n="saveBtn">Save</button>
+        </div>
+      </div>
+      <div id="folderMsg" class="mnow"></div>
+      <div class="note flush">
+        HF Hub Cache: <code id="modelFolder">—</code>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- Native Top-Layer <dialog>: Pro Before / After Compare Modal -->
+<dialog id="compareModal" class="studio-dialog" closedby="any" aria-labelledby="compareTitle">
+  <div class="modal-head">
+    <div class="modal-head-left">
+      <button id="cmpPrevBtn" class="ghost xs" type="button" hidden aria-label="Previous image">←</button>
+      <span id="cmpCounter" class="badge" hidden>1 / 1</span>
+      <button id="cmpNextBtn" class="ghost xs" type="button" hidden aria-label="Next image">→</button>
+      <h2 id="compareTitle" class="dialog-title">Before / After</h2>
+    </div>
+    <div class="inline-row">
+      <div class="seg" id="cmpModeSeg">
+        <button data-cmode="split" class="active" type="button" data-i18n="cmpSplit">Split</button>
+        <button data-cmode="sbs" type="button" data-i18n="cmpSbs">Side-by-Side</button>
+        <button data-cmode="peek" type="button" data-i18n="cmpPeek">Hold Space</button>
+      </div>
+      <div class="seg" id="cmpZoomSeg">
+        <button data-czoom="fit" class="active" type="button" data-i18n="zoomFit">Fit</button>
+        <button data-czoom="1" type="button">100%</button>
+        <button data-czoom="2" type="button">200%</button>
+      </div>
+      <button id="compareCloseBtn" class="ghost sm icon-only" type="button" aria-label="Close" autofocus>✕</button>
+    </div>
+  </div>
+  <div id="compareModalMount" class="full-w"></div>
+  <div class="modal-foot">
+    <div id="cmpFootInfo" class="inline-row"></div>
+    <div class="inline-row">
+      <button id="compareCopyBtn" class="ghost sm" type="button">
+        <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+        <span data-i18n="copyBtn">Copy</span>
+      </button>
+      <button id="compareEraseBtn" class="ghost sm" type="button">
+        <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/></svg>
+        <span data-i18n="touchUpErase">Touch up in Erase</span>
+      </button>
+      <button id="compareDlBtn" class="sm" type="button">
+        <svg class="ico ico-sm" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+        <span data-i18n="downloadBtn">Download</span>
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Native Top-Layer <dialog>: Video Preview Modal -->
+<dialog id="vidPreviewModal" class="studio-dialog" closedby="any" aria-labelledby="vidPreviewTitle">
+  <div class="modal-head">
+    <h2 id="vidPreviewTitle" class="dialog-title">Video Preview</h2>
+    <div class="inline-row">
+      <button id="vidPreviewDlBtn" class="sm" type="button" data-i18n="downloadBtn">Download</button>
+      <button id="vidPreviewCloseBtn" class="ghost sm icon-only" type="button" aria-label="Close" autofocus>✕</button>
+    </div>
+  </div>
+  <video id="vidPreviewPlayer" class="video-player" controls playsinline></video>
+</dialog>
+
+<!-- Native Top-Layer <dialog>: Keyboard Shortcuts Modal -->
+<dialog id="kbdModal" class="studio-dialog studio-dialog-sm" closedby="any" aria-labelledby="kbdTitle">
+  <div class="modal-head">
+    <h2 id="kbdTitle" class="dialog-title" data-i18n="kbdTitle">Keyboard Shortcuts</h2>
+    <button id="kbdCloseBtn" class="ghost sm icon-only" type="button" aria-label="Close" autofocus>✕</button>
+  </div>
+  <div class="kbd-grid" id="kbdGrid">
+    <div class="kbd-row"><span data-i18n="kbdTabs">Switch tabs (Image / Erase / Inspect / Video)</span><span><kbd>1</kbd> – <kbd>4</kbd></span></div>
+    <div class="kbd-row"><span data-i18n="kbdPaste">Paste image from clipboard</span><span><kbd>Ctrl</kbd> + <kbd>V</kbd></span></div>
+    <div class="kbd-row"><span data-i18n="kbdBoxBrush">Manual Erase: Box / Brush tool</span><span><kbd>R</kbd> / <kbd>B</kbd></span></div>
+    <div class="kbd-row"><span data-i18n="kbdBrushSize">Manual Erase: Decrease / Increase brush size</span><span><kbd>[</kbd> / <kbd>]</kbd></span></div>
+    <div class="kbd-row"><span data-i18n="kbdUndo">Manual Erase: Undo stroke or box</span><span><kbd>Ctrl</kbd> + <kbd>Z</kbd></span></div>
+    <div class="kbd-row"><span data-i18n="kbdPan">Manual Erase: Pan zoomed canvas</span><span><kbd>Space</kbd> + Drag</span></div>
+    <div class="kbd-row"><span data-i18n="kbdEraseRun">Manual Erase: Run erase</span><span><kbd>Enter</kbd></span></div>
+    <div class="kbd-row"><span data-i18n="kbdComparePeek">Compare Modal: Hold to peek Before / Navigate</span><span><kbd>Space</kbd> · <kbd>←</kbd> <kbd>→</kbd></span></div>
+    <div class="kbd-row"><span data-i18n="kbdClose">Close modal / drawer</span><span><kbd>Esc</kbd></span></div>
+    <div class="kbd-row"><span data-i18n="kbdHelp">Toggle shortcuts overlay</span><span><kbd>?</kbd></span></div>
+  </div>
+</dialog>
+
+<!-- Global Window Drag-Drop Overlay -->
+<div id="globalDropOverlay" class="global-drop-overlay" hidden>
+  <div class="global-drop-card">
+    <div class="drop-ico drop-ico-xl">
+      <svg class="ico ico-lg" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+    </div>
+    <h2 data-i18n="globalDropTitle">Drop images or videos anywhere</h2>
+    <p data-i18n="globalDropSub">Videos automatically open in Video Clean · Images route to the active tab</p>
+  </div>
+</div>
+
+<!-- Live Brush Cursor -->
+<div id="brushCursor" class="brush-cursor" hidden></div>
+
+<!-- Accessible Screen-Reader Live Regions (ariaNotify fallback) -->
+<div id="srAnnouncer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+<div id="srAlert" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
+
+<!-- Native Top-Layer Manual Popover Toast Stack -->
+<div id="toastStack" class="toast-stack" popover="manual" role="region" aria-label="Notifications"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

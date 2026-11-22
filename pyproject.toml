@@ -5,7 +5,7 @@
 # the same weight, since users have it on PATH.
 name = "remove-ai-watermarks"
 version = "0.66.0"
-description = "AI watermark remover for visible, invisible, and provenance marks in images and video"
+description = "Remove AI Watermarks Studio — local Web Studio & universal GPU/NPU/CPU fork for removing visible, invisible, and provenance AI watermarks"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = {text = "Apache-2.0"}
@@ -256,6 +256,24 @@ migan = [
     "onnxruntime>=1.24.0",
     "huggingface-hub>=0.20.0,<2",
 ]
+# Local Web Studio UI backend (FastAPI + Uvicorn + multipart uploads).
+studio = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.20",
+]
+# Optional hardware-accelerated ONNX Runtime execution providers (DirectML for
+# Windows AMD/Intel/NVIDIA GPUs & NPUs, OpenVINO for Intel Arc/Core Ultra NPU,
+# CUDA for NVIDIA GPUs).
+onnx-dml = [
+    "onnxruntime-directml>=1.19.0; sys_platform == 'win32'",
+]
+onnx-openvino = [
+    "onnxruntime-openvino>=1.19.0",
+]
+onnx-cuda = [
+    "onnxruntime-gpu>=1.19.0",
+]
 dev = [
     "remove-ai-watermarks[video]",
     "remove-ai-watermarks[detect]",
@@ -292,9 +310,11 @@ all = ["remove-ai-watermarks[video,video-detect,heif,detect,trustmark,text-resto
 remove-ai-watermarks = "remove_ai_watermarks.cli:main"
 
 [project.urls]
-Homepage = "https://raiw.cc"
-Repository = "https://github.com/wiltodelta/remove-ai-watermarks"
-Author = "https://wiltodelta.com/"
+Homepage = "https://github.com/pongmile/remove-ai-watermarks-studio"
+Repository = "https://github.com/pongmile/remove-ai-watermarks-studio"
+Upstream = "https://github.com/wiltodelta/remove-ai-watermarks"
+"Upstream Homepage" = "https://raiw.cc"
+"Upstream Author" = "https://wiltodelta.com/"
 
 [build-system]
 requires = ["hatchling"]

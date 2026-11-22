@@ -1,7 +1,10 @@
 """Diffusion engine for regenerating images that carry invisible AI watermarks.
 
-Requires the 'qwen-zimage' extra and a CUDA device:
+Requires the 'qwen-zimage' extra:
     uv pip install 'remove-ai-watermarks[qwen-zimage]'
+
+Supports NVIDIA CUDA (RTX & GTX), AMD ROCm & DirectML, Intel Arc XPU,
+Apple Silicon MPS, and CPU fallback.
 """
 
 # cv2/torch boundary: this engine wraps cv2 (resize/imwrite/cvtColor) and the
@@ -155,30 +158,25 @@ class InvisibleEngine:
         """Initialize the invisible watermark removal engine.
 
         Args:
-            device: Device for inference. All profiles are CUDA-only, so the
-                usable values are "cuda" and None/"auto" (which detects it);
-                anything else raises rather than falling back.
+            device: Device for inference (``"auto"``, ``"cuda"``, ``"rocm"``,
+                ``"xpu"``, ``"mps"``, ``"dml"``, or ``"cpu"``). ``None`` / ``"auto"``
+                selects the fastest available accelerator automatically.
             pipeline: Pipeline profile, one of "qwen-zimage" (DEFAULT, Apache-2.0;
-                Qwen-Image-2512 Lightning + Canny, then SAM-masked Z-Image face repair),
-                "qwen21-zimage" (NON-COMMERCIAL / PERSONAL & RESEARCH USE ONLY under
-                the Qwen Research License; Qwen-Image-2.1 + texture-fix VAE + Canny,
-                then the same Z-Image face stage, with bounded geometry and local
-                quality acceptance enabled by default), "sdxl-zimage" (the same recipe and
-                the same face stage on an SDXL global pass, vendor-adaptive strength
-                because an SDXL global stage needs more of it) or "chroma-zimage" (the
-                same face stage on an Apache-2.0 Chroma1 global pass with its own flat
-                vendor floors; see docs/chroma1-engine-research.md). ALL ARE CUDA-ONLY
-                -- there is no CPU or MPS path for invisible-watermark removal.
+                Qwen-Image-2512 Lightning + Canny, then SAM-masked Z-Image face repair;
+                requires CUDA, ROCm, or Intel XPU), "qwen21-zimage" (NON-COMMERCIAL /
+                PERSONAL & RESEARCH USE ONLY under the Qwen Research License;
+                CUDA/ROCm/XPU), "sdxl-zimage" (FP16-safe SDXL global pass; runs on
+                NVIDIA RTX/GTX, AMD ROCm/DirectML, Intel Arc XPU, Apple MPS, and CPU)
+                or "chroma-zimage" (Apache-2.0 Chroma1 global pass; runs on all PyTorch
+                accelerators and CPU).
             hf_token: Hugging Face API token.
             progress_callback: Optional callback for progress messages.
             controlnet_conditioning_scale: Canny ControlNet structure-preservation
                 strength on the global stage (not used by chroma-zimage).
-            cpu_offload: Offload model components to CPU between CUDA calls instead
-                of keeping the whole pipeline in VRAM, at the cost of speed. Forces
-                the face stack to offload instead of using automatic residency, on
-                every profile; reaches the global stack of qwen-zimage,
-                qwen21-zimage, and sdxl-zimage, not chroma-zimage.
-                CUDA only.
+            cpu_offload: Offload model components to CPU between accelerator calls
+                instead of keeping the whole pipeline in VRAM, at the cost of speed.
+                Reaches the global stack of qwen-zimage, qwen21-zimage, and sdxl-zimage
+                (on CUDA/ROCm/XPU), not chroma-zimage.
         """
 
         from remove_ai_watermarks._internal.watermark_remover import WatermarkRemover

@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING, Any
 
 from PIL import Image
 
+from remove_ai_watermarks._internal.accelerator import (
+    is_diffsynth_supported,
+    resolve_dtype,
+    resolve_torch_device,
+)
 from remove_ai_watermarks._internal.watermark_profiles import (
+    AUTO_PROFILE,
     CHROMA_ZIMAGE_PROFILE,
     DEFAULT_PROFILE,
     INVISIBLE_EXTRA,
@@ -45,11 +51,9 @@ except ImportError:
     _HAS_TORCH = False
 
 
-def _dtype_for_profile(profile: str) -> Any:
-    """Return the weight dtype bound to a concrete regeneration profile."""
-    if profile == SDXL_ZIMAGE_PROFILE:
-        return torch.float16  # type: ignore[union-attr]
-    return torch.bfloat16  # type: ignore[union-attr]
+def _dtype_for_profile(profile: str, device_kind: str = "cuda") -> Any:
+    """Return the optimal safe weight dtype bound to a regeneration profile and device."""
+    return resolve_dtype(device_kind, profile, torch_module=torch)
 
 
 # Probed once at import. ``torch`` is imported above rather than probed because this
@@ -92,24 +96,19 @@ def _cuda_works() -> bool:
 
 
 def get_device() -> str:
-    """Return ``"cuda"`` when a usable CUDA backend is present, else ``"cpu"``.
-
-    Deliberately binary. All profiles are CUDA-only, so an XPU or MPS answer would
-    only travel one frame further to the same refusal in :class:`WatermarkRemover`,
-    while costing a probe on each. ``"cpu"`` here means "no CUDA", which is exactly
-    what that refusal reports.
-    """
+    """Return the best available accelerator kind: ``"cuda"``, ``"xpu"``, ``"mps"``, ``"dml"``, or ``"cpu"``."""
     if not _HAS_TORCH:
         return "cpu"
-    if torch.cuda.is_available() and _cuda_works():  # type: ignore[union-attr]
+    _resolved, kind = resolve_torch_device("auto", torch_module=torch)
+    if kind in ("cuda", "rocm"):
         return "cuda"
-    if _has_nvidia_gpu():
+    if kind == "cpu" and _has_nvidia_gpu():
         logger.warning(
             "NVIDIA GPU detected, but the installed PyTorch build (torch %s, CUDA %s) has no working CUDA backend",
             torch.__version__,  # type: ignore[union-attr]
             torch.version.cuda,  # type: ignore[union-attr]
         )
-    return "cpu"
+    return kind
 
 
 class WatermarkRemover:
@@ -138,22 +137,29 @@ class WatermarkRemover:
         # be rejected or to break the run, and the attribute only existed to echo the
         # rejected value back.
         _ensure_watermark_deps()
-        selected_device = (device or get_device()).casefold()
-        self.device = get_device() if selected_device == "auto" else selected_device
-        # CUDA is a precondition of the object, not of the run. All profiles raise on
-        # any other device, so accepting one here only defers a guaranteed failure to
-        # model-load time, several layers down and under the wrong profile's name.
-        if self.device != "cuda":
-            raise ValueError(
-                f"Invisible-watermark removal is CUDA-only, so '{self.device}' cannot run it. "
-                "All profiles need an NVIDIA GPU. Visible-mark removal and "
-                "every identify command still run on CPU."
-            )
+        requested_device = device if device is not None else "auto"
+        resolved_device, device_kind = resolve_torch_device(requested_device, torch_module=torch)
+        self.device: Any = resolved_device
+        self.device_kind: str = device_kind
 
-        # SDXL ships fp16 weights and an fp16-safe VAE. Qwen and Chroma use
-        # bf16; auto starts on the concrete Qwen fallback and switches together
-        # with its active profile per image.
-        self.torch_dtype = _dtype_for_profile(self.model_profile)
+        if self.model_profile in (QWEN_ZIMAGE_PROFILE, QWEN21_ZIMAGE_PROFILE) and not is_diffsynth_supported(
+            self.device_kind
+        ):
+            if self.configured_profile == AUTO_PROFILE:
+                logger.info(
+                    "Auto profile falling back to '%s' on '%s' (DiffSynth requires CUDA, ROCm, or Intel XPU).",
+                    SDXL_ZIMAGE_PROFILE,
+                    self.device_kind,
+                )
+                self.model_profile = SDXL_ZIMAGE_PROFILE
+            else:
+                raise ValueError(
+                    f"Profile '{self.model_profile}' requires CUDA, ROCm, or Intel XPU (DiffSynth backend), "
+                    f"which is not available on '{self.device_kind}'. "
+                    f"Use pipeline='{SDXL_ZIMAGE_PROFILE}' or '{CHROMA_ZIMAGE_PROFILE}' on this device."
+                )
+
+        self.torch_dtype = _dtype_for_profile(self.model_profile, self.device_kind)
 
         self.cpu_offload = cpu_offload
         self.controlnet_conditioning_scale = controlnet_conditioning_scale
@@ -285,9 +291,16 @@ class WatermarkRemover:
         # resolution, so a previous image's vendor cannot pin the next one to
         # its engine. Reset cached weights only when the concrete engine changes.
         resolved = resolve_effective_profile(self.configured_profile, vendor)
+        device_kind = getattr(self, "device_kind", "cuda")
+        if (
+            self.configured_profile == AUTO_PROFILE
+            and resolved in (QWEN_ZIMAGE_PROFILE, QWEN21_ZIMAGE_PROFILE)
+            and not is_diffsynth_supported(device_kind)
+        ):
+            resolved = SDXL_ZIMAGE_PROFILE
         if resolved != self.model_profile:
             self.model_profile = resolved
-            self.torch_dtype = _dtype_for_profile(resolved)
+            self.torch_dtype = _dtype_for_profile(resolved, device_kind)
             self._qwen_zimage_pipeline = None
         if text_manifest is not None and tile:
             raise ValueError("Verified text restoration is not calibrated with tiled diffusion")
