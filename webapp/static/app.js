@@ -840,6 +840,8 @@ function renderUpdateStatus(u) {
 
   applyBtn.disabled = dirty;
   if (u.error) {
+    badge.className = 'badge warn';
+    badge.textContent = u.offline ? (lang === 'th' ? 'ออฟไลน์ / เน็ตขัดข้อง' : 'Network error') : (lang === 'th' ? 'เช็กไม่สำเร็จ' : 'Check failed');
     $('updateMsg').className = 'mnow err';
     $('updateMsg').textContent = u.error;
   }
@@ -861,10 +863,17 @@ $('checkUpdateBtn').addEventListener('click', async () => {
   try {
     const data = await apiPostForm('/update/check', {});
     renderUpdateStatus(data);
-    const n = Math.max(Number(data.behind_origin || 0), Number(data.behind_upstream || 0));
-    $('updateMsg').className = 'mnow ' + (n > 0 ? 'ok' : '');
-    $('updateMsg').textContent = n > 0 ? t('updatesAvailable', { n }) : t('upToDate');
-    showToast(n > 0 ? t('updatesAvailable', { n }) : t('upToDate'), n > 0 ? 'ok' : 'info', 2600);
+    if (data.error) {
+      $('updateMsg').className = 'mnow err';
+      $('updateMsg').textContent = data.error;
+      showToast(data.offline ? (lang === 'th' ? 'เชื่อมต่อ GitHub ไม่ได้ (ลองซ้ำ 3 ครั้งแล้ว)' : 'GitHub unreachable after 3 retries') : data.error, 'err', 4500);
+    } else {
+      const n = Math.max(Number(data.behind_origin || 0), Number(data.behind_upstream || 0));
+      const retryNote = data.attempts && data.attempts > 1 ? ` (retry ×${data.attempts})` : '';
+      $('updateMsg').className = 'mnow ' + (n > 0 ? 'ok' : '');
+      $('updateMsg').textContent = (n > 0 ? t('updatesAvailable', { n }) : t('upToDate')) + retryNote;
+      showToast(n > 0 ? t('updatesAvailable', { n }) : t('upToDate'), n > 0 ? 'ok' : 'info', 2600);
+    }
   } catch (err) {
     $('updateMsg').className = 'mnow err';
     $('updateMsg').textContent = String(err.message || err);

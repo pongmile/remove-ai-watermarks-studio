@@ -832,6 +832,44 @@ def _dl_public_state_unlocked() -> dict[str, Any]:
     }
 
 
+def _download_file_with_retry(
+    hf_hub_download: Any,
+    spec: ModelSpec,
+    name: str,
+    stop: threading.Event,
+    *,
+    retries: int = 3,
+    base_delay: float = 2.0,
+) -> None:
+    """Download a single model file with exponential backoff and automatic resume on flaky networks."""
+    kwargs: dict[str, Any] = {}
+    if spec.revision:
+        kwargs["revision"] = spec.revision
+    max_attempts = max(1, int(retries))
+    for attempt in range(1, max_attempts + 1):
+        if stop.is_set():
+            return
+        with _dl_lock:
+            suffix = f" (retry {attempt}/{max_attempts})" if attempt > 1 else ""
+            _dl["current"] = f"{spec.repo_id}/{name}{suffix}"
+        try:
+            if spec.store == "diffsynth":
+                hf_hub_download(spec.repo_id, name, local_dir=str(spec_dir(spec)), **kwargs)
+            else:
+                hf_hub_download(spec.repo_id, name, **kwargs)
+            return
+        except Exception as exc:
+            msg = str(exc).lower()
+            # Never retry permanent 401/403/404 repository/auth errors
+            if any(k in msg for k in ("401", "403", "404", "gated", "unauthorized", "entrynotfound")):
+                raise
+            if attempt >= max_attempts or stop.is_set():
+                raise
+            # Interruptible backoff sleep so Pause responds immediately
+            if stop.wait(timeout=base_delay * (2 ** (attempt - 1))):
+                return
+
+
 def _download_worker(profile: str, include_face: bool, stop: threading.Event) -> None:
     from huggingface_hub import hf_hub_download
 
@@ -847,15 +885,7 @@ def _download_worker(profile: str, include_face: bool, stop: threading.Event) ->
             for name, _size in files:
                 if stop.is_set():
                     return
-                with _dl_lock:
-                    _dl["current"] = f"{spec.repo_id}/{name}"
-                kwargs: dict[str, Any] = {}
-                if spec.revision:
-                    kwargs["revision"] = spec.revision
-                if spec.store == "diffsynth":
-                    hf_hub_download(spec.repo_id, name, local_dir=str(spec_dir(spec)), **kwargs)
-                else:
-                    hf_hub_download(spec.repo_id, name, **kwargs)
+                _download_file_with_retry(hf_hub_download, spec, name, stop, retries=3, base_delay=2.0)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
     finally:

@@ -1505,14 +1505,81 @@ _update_state: dict[str, Any] = {
 }
 
 
+_GIT_TRANSIENT_PATTERNS = (
+    "could not resolve host",
+    "failed to connect",
+    "connection reset",
+    "connection timed out",
+    "operation timed out",
+    "timed out",
+    "ssl",
+    "tls",
+    "gnutls",
+    "openssl",
+    "unexpected disconnect",
+    "early eof",
+    "transfer closed",
+    "recv failure",
+    "rpc failed",
+    "the remote end hung up",
+    "unable to access",
+    "502",
+    "503",
+    "504",
+    "429",
+    "temporary failure",
+    "network is unreachable",
+    "name or service not known",
+    "low speed",
+)
+
+_GIT_NON_RETRYABLE_PATTERNS = (
+    "authentication failed",
+    "repository not found",
+    "permission denied",
+    "could not read username",
+    "not a git repository",
+)
+
+
+def _is_transient_git_error(proc: subprocess.CompletedProcess[str] | None) -> bool:
+    if proc is None:
+        return True  # timeout
+    err = ((proc.stderr or "") + "\n" + (proc.stdout or "")).lower()
+    if any(p in err for p in _GIT_NON_RETRYABLE_PATTERNS):
+        return False
+    return any(p in err for p in _GIT_TRANSIENT_PATTERNS)
+
+
+def _is_offline_git_error(msg: str | None) -> bool:
+    low = (msg or "").lower()
+    return any(
+        k in low
+        for k in (
+            "could not resolve host",
+            "failed to connect",
+            "timed out",
+            "unable to access",
+            "network is unreachable",
+            "name or service not known",
+            "connection reset",
+            "low speed",
+        )
+    )
+
+
 def _run_git(*args: str, timeout: float = 5.0) -> subprocess.CompletedProcess[str] | None:
     git_exe = shutil.which("git")
     if not git_exe:
         return None
+    env = os.environ.copy()
+    env.setdefault("GIT_TERMINAL_PROMPT", "0")
+    env.setdefault("GCM_INTERACTIVE", "never")
     try:
         return subprocess.run(  # noqa: S603
             [git_exe, "--no-optional-locks", *args],
             cwd=str(REPO_ROOT),
+            env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -1522,6 +1589,25 @@ def _run_git(*args: str, timeout: float = 5.0) -> subprocess.CompletedProcess[st
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
+
+
+def _run_git_with_retry(
+    *args: str,
+    timeout: float = 30.0,
+    retries: int = 3,
+    base_delay: float = 1.5,
+) -> tuple[subprocess.CompletedProcess[str] | None, int]:
+    """Run a network git command with exponential backoff on transient failures."""
+    max_attempts = max(1, int(retries))
+    last_proc: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(1, max_attempts + 1):
+        last_proc = _run_git(*args, timeout=timeout)
+        if _git_ok(last_proc):
+            return last_proc, attempt
+        if attempt >= max_attempts or not _is_transient_git_error(last_proc):
+            return last_proc, attempt
+        time.sleep(base_delay * (2 ** (attempt - 1)))
+    return last_proc, max_attempts
 
 
 def _git_ok(proc: subprocess.CompletedProcess[str] | None) -> bool:
@@ -1559,7 +1645,12 @@ def _resolve_upstream_ref(branch: str | None) -> str | None:
     return None
 
 
-def _collect_update_status(*, checked_at: str | None = None, error: str | None = None) -> dict[str, Any]:
+def _collect_update_status(
+    *,
+    checked_at: str | None = None,
+    error: str | None = None,
+    attempts: int | None = None,
+) -> dict[str, Any]:
     """Gather local git & remote tracking status without making network calls."""
     if not shutil.which("git") or not _git_ok(_run_git("rev-parse", "--is-inside-work-tree", timeout=5.0)):
         return {
@@ -1575,6 +1666,8 @@ def _collect_update_status(*, checked_at: str | None = None, error: str | None =
             "behind_upstream": None,
             "latest_upstream_tag": None,
             "recent_commits": [],
+            "offline": False,
+            "attempts": attempts,
             "error": error or "Git is not installed or this directory is not a git repository.",
         }
 
@@ -1624,34 +1717,95 @@ def _collect_update_status(*, checked_at: str | None = None, error: str | None =
         "behind_upstream": behind_upstream,
         "latest_upstream_tag": latest_tag,
         "recent_commits": recent_commits,
+        "offline": _is_offline_git_error(error),
+        "attempts": attempts,
         "error": error,
     }
 
 
-def _reinstall_editable_no_deps() -> tuple[bool, str]:
-    """Refresh editable package metadata without modifying GPU PyTorch or other dependencies."""
+def _torch_index_for_version(ver: str) -> str:
+    m = re.search(r"\+(cu\d+|rocm[\d.]+|xpu|cpu)", ver or "")
+    return f"https://download.pytorch.org/whl/{m.group(1)}" if m else ""
+
+
+def _read_installed_torch_versions() -> tuple[str, str]:
+    import importlib.metadata as _im
+
+    torch_ver = ""
+    vision_ver = ""
+    with contextlib.suppress(_im.PackageNotFoundError):
+        torch_ver = _im.version("torch")
+    with contextlib.suppress(_im.PackageNotFoundError):
+        vision_ver = _im.version("torchvision")
+    return torch_ver, vision_ver
+
+
+def _run_pip_install(args: list[str], *, timeout: float = 120.0, retries: int = 2) -> tuple[bool, str]:
     uv_exe = shutil.which("uv")
     cmd = (
-        [uv_exe, "pip", "install", "--python", sys.executable, "--no-deps", "-e", "."]
+        [uv_exe, "pip", "install", "--python", sys.executable, *args]
         if uv_exe
-        else [sys.executable, "-m", "pip", "install", "--no-deps", "-e", "."]
+        else [sys.executable, "-m", "pip", "install", *args]
     )
-    try:
-        proc = subprocess.run(  # noqa: S603
-            cmd,
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=90.0,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, str(exc)
-    if proc.returncode != 0:
-        return False, (proc.stderr or proc.stdout or f"Exit code {proc.returncode}").strip()
-    return True, ""
+    last_err = ""
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            proc = subprocess.run(  # noqa: S603
+                cmd,
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                check=False,
+            )
+            if proc.returncode == 0:
+                return True, ""
+            last_err = (proc.stderr or proc.stdout or f"Exit code {proc.returncode}").strip()
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            last_err = str(exc)
+        if attempt < retries:
+            time.sleep(2.0 * attempt)
+    return False, last_err
+
+
+def _reinstall_editable_no_deps(*, sync_pyproject: bool = False) -> tuple[bool, str, bool]:
+    """Refresh editable package metadata while protecting installed GPU PyTorch wheels."""
+    saved_torch, saved_vision = _read_installed_torch_versions()
+    torch_protected = bool(saved_torch)
+    warnings: list[str] = []
+
+    if sync_pyproject:
+        torch_index = _torch_index_for_version(saved_torch)
+        dep_args: list[str] = []
+        if torch_index:
+            dep_args.extend(["--extra-index-url", torch_index])
+        dep_args.append(".[studio,visible,video,heif,detect,lama,migan,source-classify]")
+        ok_deps, err_deps = _run_pip_install(dep_args, timeout=180.0, retries=2)
+        if not ok_deps:
+            warnings.append(f"dependency sync: {err_deps}")
+
+        if saved_torch and torch_index:
+            after_torch, _ = _read_installed_torch_versions()
+            if after_torch and after_torch != saved_torch:
+                base_torch = saved_torch.split("+")[0]
+                restore_specs = [f"torch=={base_torch}"]
+                if saved_vision:
+                    restore_specs.append(f"torchvision=={saved_vision.split('+')[0]}")
+                ok_r, err_r = _run_pip_install(
+                    ["--index-url", torch_index, "--force-reinstall", "--no-deps", *restore_specs],
+                    timeout=180.0,
+                    retries=2,
+                )
+                if not ok_r:
+                    warnings.append(f"torch restore: {err_r}")
+
+    ok_ed, err_ed = _run_pip_install(["--no-deps", "-e", "."], timeout=90.0, retries=2)
+    if not ok_ed:
+        warnings.append(err_ed)
+        return False, "; ".join(warnings), torch_protected
+    return (not warnings), "; ".join(warnings), torch_protected
 
 
 @app.get("/update/status")
@@ -1665,7 +1819,7 @@ def update_status() -> dict[str, Any]:
 
 @app.post("/update/check")
 def update_check() -> dict[str, Any]:
-    """Fetch tags and refs from configured git remotes (origin & upstream) and refresh update status."""
+    """Fetch tags and refs from configured git remotes (origin & upstream) with retry on flaky networks."""
     with _update_lock:
         base = _collect_update_status()
         if not base["git_available"]:
@@ -1673,16 +1827,29 @@ def update_check() -> dict[str, Any]:
             return base
 
         errors: list[str] = []
+        max_attempts_used = 1
         remotes = base["remotes"]
         for remote_name in ("origin", "upstream"):
             if remotes.get(remote_name):
-                proc = _run_git("fetch", "--tags", remote_name, timeout=25.0)
+                proc, attempts = _run_git_with_retry(
+                    "-c",
+                    "http.lowSpeedLimit=1000",
+                    "-c",
+                    "http.lowSpeedTime=20",
+                    "fetch",
+                    "--tags",
+                    remote_name,
+                    timeout=30.0,
+                    retries=3,
+                    base_delay=1.5,
+                )
+                max_attempts_used = max(max_attempts_used, attempts)
                 if not _git_ok(proc):
                     errors.append(f"{remote_name}: {_git_stderr(proc)}")
 
         checked_at = datetime.now(UTC).isoformat()
         err_msg = "; ".join(errors) if errors else None
-        snap = _collect_update_status(checked_at=checked_at, error=err_msg)
+        snap = _collect_update_status(checked_at=checked_at, error=err_msg, attempts=max_attempts_used)
         _update_state["checked_at"] = checked_at
         _update_state["error"] = err_msg
         _update_state["snapshot"] = snap
@@ -1691,7 +1858,7 @@ def update_check() -> dict[str, Any]:
 
 @app.post("/update/apply")
 def update_apply(source: str = Form("auto")) -> dict[str, Any]:
-    """Safely pull from origin or merge from upstream, refresh editable metadata, and invalidate caches."""
+    """Safely pull from origin or merge from upstream with network retries and GPU wheel protection."""
     src_norm = (source or "auto").strip().lower()
     if src_norm not in _VALID_UPDATE_SOURCES:
         raise HTTPException(
@@ -1715,6 +1882,8 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                     "old_commit": None,
                     "new_commit": None,
                     "restart_required": False,
+                    "attempts": 0,
+                    "offline": False,
                     "message": status["error"] or "Git is unavailable.",
                 }
 
@@ -1750,9 +1919,12 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                         "old_commit": old_commit,
                         "new_commit": old_commit,
                         "restart_required": False,
+                        "attempts": 0,
+                        "offline": False,
                         "message": "No origin or upstream git remote is configured.",
                     }
 
+            attempts_used = 1
             if target_source == "origin":
                 if not has_origin:
                     return {
@@ -1761,6 +1933,8 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                         "old_commit": old_commit,
                         "new_commit": old_commit,
                         "restart_required": False,
+                        "attempts": 0,
+                        "offline": False,
                         "message": "Remote 'origin' is not configured.",
                     }
                 if not branch or branch == "detached":
@@ -1770,19 +1944,48 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                         "old_commit": old_commit,
                         "new_commit": old_commit,
                         "restart_required": False,
+                        "attempts": 0,
+                        "offline": False,
                         "message": "HEAD is detached; checkout a branch before pulling from origin.",
                     }
-                fetch_proc = _run_git("fetch", "--tags", "origin", timeout=25.0)
+                fetch_proc, attempts_used = _run_git_with_retry(
+                    "-c",
+                    "http.lowSpeedLimit=1000",
+                    "-c",
+                    "http.lowSpeedTime=20",
+                    "fetch",
+                    "--tags",
+                    "origin",
+                    timeout=30.0,
+                    retries=3,
+                    base_delay=1.5,
+                )
                 if not _git_ok(fetch_proc):
+                    err_txt = _git_stderr(fetch_proc)
                     return {
                         "ok": False,
                         "updated": False,
                         "old_commit": old_commit,
                         "new_commit": old_commit,
                         "restart_required": False,
-                        "message": f"Failed to fetch origin: {_git_stderr(fetch_proc)}",
+                        "attempts": attempts_used,
+                        "offline": _is_offline_git_error(err_txt),
+                        "message": f"Failed to fetch origin after {attempts_used} attempt(s): {err_txt}",
                     }
-                pull_proc = _run_git("pull", "--ff-only", "origin", branch, timeout=30.0)
+                origin_ref = f"origin/{branch}"
+                if not _git_ref_exists(origin_ref):
+                    return {
+                        "ok": False,
+                        "updated": False,
+                        "old_commit": old_commit,
+                        "new_commit": old_commit,
+                        "restart_required": False,
+                        "attempts": attempts_used,
+                        "offline": False,
+                        "message": f"Remote branch '{origin_ref}' not found.",
+                    }
+                # Local ff-only merge using already-fetched ref (no second network round-trip)
+                pull_proc = _run_git("merge", "--ff-only", origin_ref, timeout=30.0)
                 if not _git_ok(pull_proc):
                     return {
                         "ok": False,
@@ -1790,8 +1993,10 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                         "old_commit": old_commit,
                         "new_commit": old_commit,
                         "restart_required": False,
+                        "attempts": attempts_used,
+                        "offline": False,
                         "message": (
-                            f"Fast-forward pull from origin/{branch} failed: {_git_stderr(pull_proc)}. "
+                            f"Fast-forward pull from {origin_ref} failed: {_git_stderr(pull_proc)}. "
                             "Resolve divergence manually via git."
                         ),
                     }
@@ -1803,17 +2008,33 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                         "old_commit": old_commit,
                         "new_commit": old_commit,
                         "restart_required": False,
+                        "attempts": 0,
+                        "offline": False,
                         "message": "Remote 'upstream' is not configured.",
                     }
-                fetch_proc = _run_git("fetch", "--tags", "upstream", timeout=25.0)
+                fetch_proc, attempts_used = _run_git_with_retry(
+                    "-c",
+                    "http.lowSpeedLimit=1000",
+                    "-c",
+                    "http.lowSpeedTime=20",
+                    "fetch",
+                    "--tags",
+                    "upstream",
+                    timeout=30.0,
+                    retries=3,
+                    base_delay=1.5,
+                )
                 if not _git_ok(fetch_proc):
+                    err_txt = _git_stderr(fetch_proc)
                     return {
                         "ok": False,
                         "updated": False,
                         "old_commit": old_commit,
                         "new_commit": old_commit,
                         "restart_required": False,
-                        "message": f"Failed to fetch upstream: {_git_stderr(fetch_proc)}",
+                        "attempts": attempts_used,
+                        "offline": _is_offline_git_error(err_txt),
+                        "message": f"Failed to fetch upstream after {attempts_used} attempt(s): {err_txt}",
                     }
                 upstream_ref = _resolve_upstream_ref(branch if branch != "detached" else None) or "upstream/main"
                 ff_proc = _run_git("merge", "--ff-only", upstream_ref, timeout=30.0)
@@ -1827,6 +2048,8 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                             "old_commit": old_commit,
                             "new_commit": old_commit,
                             "restart_required": False,
+                            "attempts": attempts_used,
+                            "offline": False,
                             "message": (
                                 f"Merge conflict while syncing {upstream_ref}. "
                                 "The merge was cleanly aborted; please resolve conflicts manually via git."
@@ -1837,13 +2060,19 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
             updated = new_commit != old_commit
 
             if updated:
-                reinstall_ok, reinstall_err = _reinstall_editable_no_deps()
+                changed_files = _git_stdout(
+                    _run_git("diff", "--name-only", str(old_commit), str(new_commit), timeout=10.0)
+                ).splitlines()
+                pyproject_changed = "pyproject.toml" in [f.strip() for f in changed_files]
+                reinstall_ok, reinstall_err, torch_protected = _reinstall_editable_no_deps(
+                    sync_pyproject=pyproject_changed
+                )
                 _static_health.cache_clear()
                 model_status.invalidate_snapshot_cache()
                 checked_at = datetime.now(UTC).isoformat()
                 _update_state["checked_at"] = checked_at
                 _update_state["error"] = None
-                _update_state["snapshot"] = _collect_update_status(checked_at=checked_at)
+                _update_state["snapshot"] = _collect_update_status(checked_at=checked_at, attempts=attempts_used)
                 if not reinstall_ok:
                     return {
                         "ok": True,
@@ -1851,8 +2080,12 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                         "old_commit": old_commit,
                         "new_commit": new_commit,
                         "restart_required": True,
+                        "attempts": attempts_used,
+                        "deps_synced": pyproject_changed,
+                        "torch_protected": torch_protected,
+                        "offline": False,
                         "message": (
-                            f"Updated {old_commit} -> {new_commit}, but editable metadata refresh warned: "
+                            f"Updated {old_commit} -> {new_commit}, but package refresh warned: "
                             f"{reinstall_err}. Restart Studio to load the new code."
                         ),
                     }
@@ -1862,19 +2095,27 @@ def update_apply(source: str = Form("auto")) -> dict[str, Any]:
                     "old_commit": old_commit,
                     "new_commit": new_commit,
                     "restart_required": True,
+                    "attempts": attempts_used,
+                    "deps_synced": pyproject_changed,
+                    "torch_protected": torch_protected,
+                    "offline": False,
                     "message": f"Updated {old_commit} -> {new_commit}. Restart Studio to load the new code.",
                 }
 
             checked_at = datetime.now(UTC).isoformat()
             _update_state["checked_at"] = checked_at
             _update_state["error"] = None
-            _update_state["snapshot"] = _collect_update_status(checked_at=checked_at)
+            _update_state["snapshot"] = _collect_update_status(checked_at=checked_at, attempts=attempts_used)
             return {
                 "ok": True,
                 "updated": False,
                 "old_commit": old_commit,
                 "new_commit": new_commit,
                 "restart_required": False,
+                "attempts": attempts_used,
+                "deps_synced": False,
+                "torch_protected": True,
+                "offline": False,
                 "message": "Already up to date.",
             }
     finally:
